@@ -42,22 +42,22 @@ class Runner(object):
     def __init__(self,
                  agent,
                  environment):
-        """Initialize the Runner object in charge of running a full experiment.
+        """
+        Initialize the Runner object in charge of running a full experiment.
 
         Args:
-          create_agent_fn: A function that takes as args a Tensorflow session and an
-            Atari 2600 Gym environment, and returns an agent.
-          create_environment_fn: A function which receives a game name and creates
-            an Atari 2600 Gym environment.
+        agent (object):
+            An agent is an object that should have the implemented the
+            following methods begin_episode(), step(), end_episode() to be
+            usable.
 
+        env (gym.Env):
+            An env is standard OpenAI Gym Environment which should have the
+            the standard methods implemented such as the reset(), step()
 
         This constructor will take the following actions:
         - Initialize an environment.
-        - Initialize a `tf.Session`.
-        - Initialize a logger.
         - Initialize an agent.
-        - Reload from the latest checkpoint, if available, and initialize the
-          Checkpointer object.
         """
 
         self._environment = environment
@@ -74,8 +74,7 @@ class Runner(object):
 
     def run_experiment(self):
         """
-        Runs a full experiment and at conclusion plots the important
-        statistics.
+        Runs a full experiment and at conclusion plots the important statistics.
         """
 
         self._run_one_episode()
@@ -137,6 +136,7 @@ class Runner(object):
 
 
     def _plot_statistics(self):
+        """Plots the Equity Curve of Agent vs Benchmark"""
 
         plt.title("Performance: Agent vs Benchmark")
         plt.plot(np.cumsum(self.rewards))
