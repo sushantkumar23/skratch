@@ -1,17 +1,6 @@
-# Copyright 2018 The Dopamine Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#      http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""Module defining classes and helper methods for running Atari 2600 agents."""
+# Copyright 2018 The Skratch Authors.
+
+"""Module defining classes and helper methods for a trading agent."""
 
 from skratch.common import iteration_statistics
 import matplotlib.pyplot as plt
@@ -61,25 +50,19 @@ class Runner(object):
         """
 
         self._environment = environment
-        # Set up a session and initialize variables.
-        #self._sess = tf.Session('',
-                              #  config=tf.ConfigProto(allow_soft_placement=True))
-        # self._agent = create_agent_fn(self._sess, self._environment,
-        #                               summary_writer=self._summary_writer)
-
         self._agent = agent
-        self.total_steps = 0
-        self.total_reward = 0
 
 
     def run_experiment(self):
-        """
-        Runs a full experiment and at conclusion plots the important statistics.
+        """Runs a full experiment and at conclusion plots the important
+        statistics.
         """
 
         self._run_one_episode()
-
-        self._plot_statistics()
+        # Plot equity curve of the agent
+        self._plot_equity_curve()
+        # Printing the Statistics
+        self._print_statistics()
 
     def _run_one_episode(self):
         """Executes a full trajectory of the agent interacting with the environment.
@@ -93,7 +76,6 @@ class Runner(object):
         # Keep interacting until we reach a terminal state.
         while not done:
             observation, reward, done = self._run_one_step(action)
-            self.num_steps += 1
             if not done:
                 action = self._agent.step(reward, observation)
         self._end_episode(reward, observation)
@@ -102,9 +84,8 @@ class Runner(object):
         """Initialization for a new episode.
 
         Returns:
-          action: int, the initial action chosen by the agent.
+            action: int the initial action chosen by the agent.
         """
-
         self.rewards = []
         self.benchmark_rewards = []
         self.num_steps = 0
@@ -115,13 +96,15 @@ class Runner(object):
         """Executes a single step in the environment.
 
         Args:
-          action: int, the action to perform in the environment.
+          action (int):
+            the action to perform in the environment.
 
         Returns:
           The observation, reward, and is_terminal values returned from the
             environment.
         """
         observation, reward, done, info = self._environment.step(action)
+        self.num_steps += 1
         self.rewards.append(reward)
         self.benchmark_rewards.append(info['return'])
         return observation, reward, done
@@ -134,13 +117,15 @@ class Runner(object):
         """
         self._agent.end_episode(reward, observation)
 
-
-    def _plot_statistics(self):
+    def _plot_equity_curve(self):
         """Plots the Equity Curve of Agent vs Benchmark"""
-
         plt.title("Performance: Agent vs Benchmark")
         plt.plot(np.cumsum(self.rewards))
         plt.plot(np.cumsum(self.benchmark_rewards))
+        plt.legend(['Agent', 'Benchmark'])
 
+
+    def _print_statistics(self):
+        """Prints out the relevant experiment statistics"""
         print("Total Steps: {}".format(self.num_steps))
         print("Total Reward: {}".format(np.sum(self.rewards)))
