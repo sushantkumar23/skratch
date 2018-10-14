@@ -15,6 +15,7 @@ class StateTransformer(object):
     def __init__(self):
 
 
+
     def _get_time_features(self, timestamp):
 
         min = timestamp.to_pydatetime().minute
@@ -93,13 +94,19 @@ class DQNAgent(object):
                  learning_timestep = 96,
                  stack_size = 8,
                  gamma,
-                 spread=0.00005
+                 spread=0.00005,
+                 action_size = 3,
                  ):
         self.st = StateTransformer()
         self.action_array = np.identity(3)
-
+        self.action_size = action_size
         self._replay_buffer_size = replay_buffer_size
         self._replay = collections.deque(maxlen=self._replay_buffer_size)
+        self.state
+        self.past_state
+        self.model1 = build_model()
+        self.model2 = build_model()
+        self.action
 
     def build_state(self, observation, action, reward):
         """
@@ -136,9 +143,9 @@ class DQNAgent(object):
             self.last_states.append(state)
 
 
-    def build_replay_buffer(self,state):
+    def build_replay_buffer(self,reward,action):
         """Updates the replay buffer based on the new observations"""
-        self.replay_buffer = self.replay_buffer.append(state)
+        self.replay_buffer = self.replay_buffer.append((self.past_state,reward,self.action,self.state))
         self.replay_buffer = self.replay_buffer[-replay_history:]
 
     # Returns the agent's first action for the episode
@@ -164,9 +171,11 @@ class DQNAgent(object):
         Records the most recent transition into replay buffer and return's the
         agent's next action
         """
+        self._train_model()
         self.action = self._select_action(reward, observation)
-        self.state = build_state(self, observation, reward)
-        build_replay_buffer(self, self.state)
+        self.past_state = self.state
+        self.state = build_state(observation, reward)
+        build_replay_buffer(reward)
         return self.action
 
     def end_episode(self, reward, observation):
@@ -184,28 +193,44 @@ class DQNAgent(object):
         """
         pass
 
-    def _select_action(self,reward,observation):
+    def _select_action(self):
         """
-        trains the estimation and target networks by sampling from the existing replay buffer.
-        Then selects a greedy action based on estimation of Q function.
+        Selects a greedy action based on estimation of Q function.
         Returns:
         -------
         action taken by the agent each step
         """
-        #estimation_model = keras.Sequential()
-        #model.add(keras.layers.Dense(16, activation=tf.nn.elu))
-        #model.add(keras.layers.Dense(16, activation=tf.nn.elu))
-        #model.add(keras.layers.LSTM(
+        act_value = self.model1.predict(state)
+        return np.argmax(act_value)
 
 
-        input = sample(i)
-        layer1 = tf.dense(inputs = input,units = 32,activation =
-        tf.nn.elu)
-        layer2 = tf.dense(inputs = layer1,units = 32,activation =
-            tf.nn.elu)
-        lstm = tf.contrib.rnn.LayerNormBasicLSTMCell(1)
-        initial_state = lstm.zero_state(batch_size, tf.float32)
-        lstm_outputs, final_state = tf.nn.dynamic_rnn(lstm, hidden3,initial_state=initial_state)
-        output = fully_connected(lstm, 3 ,scope="outputs",activation_fn = softmax)
-        sample = np.random.choice(self.replay_buffer, learning_timestep )
-        for i in 1 to learning_timestep :
+    def _build_model(self):
+        model = Sequential()
+        model.add(Dense(24, input_dim=self.state_size, activation='elu'))
+        model.add(Dense(24, activation='elu'))
+        model.add(LSTM(1, input_shape = (24,1)))
+        model.add(Dense(self.action_size, activation='sigmoid'))
+        model.compile(loss='mse',
+                  optimizer=Adam(lr=self.learning_rate))
+        return model
+
+
+
+
+    def _train_model(self):
+        minibatch = random.sample(self.replay_buffer, self.learning_timestep)
+        for state, action, reward, next_state in minibatch :
+            Q_next = self.model2.predict(next_state)
+            target = reward + self.gamma * np.amax(Q_next)
+            #train network
+            self.model1.fit(state, target, epochs=1)
+            self.model2.fit(state, target, epochs = 1)
+
+# To do - Preprocess data , Write a separate function for training target network
+# and make the training less frequent
+
+
+
+
+
+
