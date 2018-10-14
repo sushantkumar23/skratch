@@ -85,7 +85,6 @@ class DQNAgent(object):
                  gamma,
                  spread=0.00005,
                  action_size = 3,
-
                  ):
         self.st = StateTransformer()
         self.action_array = np.identity(3)
@@ -177,7 +176,7 @@ class DQNAgent(object):
         self._train_model()
         self.action = self._select_action(reward, observation)
         self.past_state = self.state
-        self.state = build_state( observation, reward)
+        self.state = build_state(observation, reward)
         build_replay_buffer(reward)
         return self.action
 
@@ -196,7 +195,7 @@ class DQNAgent(object):
         """
         pass
 
-    def _select_action(self,reward,observation):
+    def _select_action(self):
         """
         Selects a greedy action based on estimation of Q function.
         Returns:
@@ -211,7 +210,7 @@ class DQNAgent(object):
         model = Sequential()
         model.add(Dense(24, input_dim=self.state_size, activation='elu'))
         model.add(Dense(24, activation='elu'))
-        model.add(LSTM(1))
+        model.add(LSTM(1, input_shape = (24,1)))
         model.add(Dense(self.action_size, activation='sigmoid'))
         model.compile(loss='mse',
                   optimizer=Adam(lr=self.learning_rate))
@@ -221,13 +220,16 @@ class DQNAgent(object):
 
 
     def _train_model(self):
-        minibatch = random.sample(self.replay_buffer, learning_timestep)
+        minibatch = random.sample(self.replay_buffer, self.learning_timestep)
         for state, action, reward, next_state in minibatch :
             Q_next = self.model2.predict(next_state)
             target = reward + self.gamma * np.amax(Q_next)
             #train network
             self.model1.fit(state, target, epochs=1)
             self.model2.fit(state, target, epochs = 1)
+
+# To do - Preprocess data , Write a separate function for training target network
+# and make the training less frequent
 
 
 
