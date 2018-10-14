@@ -5,15 +5,6 @@ import numpy as np
 import tensorflow as tf
 import pandas as pd
 
-# dt = pd.Timestamp('2018-01-06')
-# series = pd.Series([1.222], index=[dt])
-# series
-#
-# dt.to_pydatetime().weekday()
-#
-# dt2 = pd.Timestamp('2018-01-02')
-# new_series = pd.Series([1.333], index=[dt2])
-# series.append(new_series)
 
 NORMALIZATION_WINDOW = 96
 STACK_SIZE = 8
@@ -68,7 +59,27 @@ class StateTransformer(object):
         new_series = pd.Series([observation[1]], index=[observation[0]])
         self.time_series.append(new_series)
 
-    def get_experiences()
+    def get_experiences(self):
+        time_features = self._get_time_features(observation[0])
+        market_features = self._get_market_features()
+
+        log_return = np.log(self.time_series[-1]/self.time_series[-2])
+        self.next_states = []
+        experiences = []
+
+        for action in range(self.num_actions):
+            position_features = self.action_array[action]
+            next_state = np.concatenate((time_features, market_features, position_features))
+            self.next_states.append(next_state)
+            step_return = log_return * (action - 1)
+            for last_action, last_state in enumerate(self.last_states):
+                commission = self.spread * np.abs(action - last_action)
+                reward = step_return - commission
+                experiences.append((last_state, action, reward, next_state))
+
+        self.last_states = self.next_states
+
+        return experiences
 
 
 
@@ -106,24 +117,11 @@ class DQNAgent(object):
         return augmented_state
 
     def action_augmentation(self, observation):
-        self._add_time_series(observation)
-        time_features = self._get_time_features(observation[0])
-        market_features = self._get_market_features()
 
-        log_return = np.log(self.time_series[-1]/self.time_series[-2])
-        self.next_states = []
-
-        for action in range(self.num_actions):
-            position_features = self.action_array[action]
-            next_state = np.concatenate((time_features, market_features, position_features))
-            self.next_states.append(next_state)
-            step_return = log_return * (action - 1)
-            for last_action, last_state in enumerate(self.last_states):
-                commission = self.spread * np.abs(action - last_action)
-                reward = step_return - commission
-                self._replay.append((last_state, action, reward, next_state))
-
-        self.last_states = self.next_states
+        self.st.build_state(observation)
+        experiences = self.st.get_experiences(observation)
+        for experience in experiences:
+            self._replay.append(experience)
 
     def _initialise_time_series(self, observation):
         """Initialises the time series with the first observation"""
