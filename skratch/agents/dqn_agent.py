@@ -175,7 +175,7 @@ class DQNAgent(object):
         agent's next action
         """
         self.step += 1
-        if sel.step % training_timestep == 0:
+        if self.step % training_timestep == 0:
             self._train_model()
         self._update_target_weights()
         self.action = self._select_action()
@@ -234,12 +234,13 @@ class DQNAgent(object):
             self.model1.fit(state, target, epochs=1)
 
     def _update_target_weights(self):
+        n = len(model1.layers)
         w1 =[]
         w2 =[]
-        for layer in model1.layers:
-            w1 = [w1,model1.layer.get_weights()]
-            w2 = [w2,model2.layer.get_weights()]
-            w2 = (1 - tau)*w2 + tau* w1
+        for i in range(n):
+            w1 = [w1,model1.layer[i].get_weights()[0]]
+            w2 = [w2,model2.layer[i].get_weights()[0]]
+            w2 = (1 - self.tau)*w2 + self.tau * w1
             model2.layer.set_weights(w2)
 
 
