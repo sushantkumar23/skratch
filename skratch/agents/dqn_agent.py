@@ -96,6 +96,7 @@ class DQNAgent(object):
         self.model1 = build_model()
         self.model2 = build_model()
         self.action
+        self.step = 0
 
     def build_state(self, observation, action, reward):
         """
@@ -173,8 +174,11 @@ class DQNAgent(object):
         Records the most recent transition into replay buffer and return's the
         agent's next action
         """
-        self._train_model()
-        self.action = self._select_action(reward, observation)
+        self.step += 1
+        if sel.step % training_timestep == 0:
+            self._train_model()
+        self._update_target_weights()
+        self.action = self._select_action()
         self.past_state = self.state
         self.state = build_state(observation, reward)
         build_replay_buffer(reward)
@@ -210,7 +214,7 @@ class DQNAgent(object):
         model = Sequential()
         model.add(Dense(24, input_dim=self.state_size, activation='elu'))
         model.add(Dense(24, activation='elu'))
-        model.add(LSTM(1, input_shape = (24,1)))
+       # model.add(LSTM(1, input_shape = (24,1)))
         model.add(Dense(self.action_size, activation='sigmoid'))
         model.compile(loss='mse',
                   optimizer=Adam(lr=self.learning_rate))
@@ -223,13 +227,27 @@ class DQNAgent(object):
         minibatch = random.sample(self.replay_buffer, self.learning_timestep)
         for state, action, reward, next_state in minibatch :
             Q_next = self.model2.predict(next_state)
-            target = reward + self.gamma * np.amax(Q_next)
+            a = argmax(self.model1.predict(next_state))
+            target = reward + self.gamma * Q_next[a]
+            #greedy action wrt model1 not model 2
             #train network
             self.model1.fit(state, target, epochs=1)
-            self.model2.fit(state, target, epochs = 1)
 
-# To do - Preprocess data , Write a separate function for training target network
-# and make the training less frequent
+    def _update_target_weights(self):
+        w1 =[]
+        w2 =[]
+        for layer in model1.layers:
+            w1 = [w1,model1.layer.get_weights()]
+            w2 = [w2,model2.layer.get_weights()]
+            w2 = (1 - tau)*w2 + tau* w1
+            model2.layer.set_weights(w2)
+
+
+
+
+
+
+
 
 
 
