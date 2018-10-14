@@ -15,6 +15,7 @@ import pandas as pd
 # new_series = pd.Series([1.333], index=[dt2])
 # series.append(new_series)
 
+
 NORMALIZATION_WINDOW = 96
 STACK_SIZE = 8
 
@@ -68,7 +69,27 @@ class StateTransformer(object):
         new_series = pd.Series([observation[1]], index=[observation[0]])
         self.time_series.append(new_series)
 
-    def get_experiences()
+    def get_experiences(self):
+        time_features = self._get_time_features(observation[0])
+        market_features = self._get_market_features()
+
+        log_return = np.log(self.time_series[-1]/self.time_series[-2])
+        self.next_states = []
+        experiences = []
+
+        for action in range(self.num_actions):
+            position_features = self.action_array[action]
+            next_state = np.concatenate((time_features, market_features, position_features))
+            self.next_states.append(next_state)
+            step_return = log_return * (action - 1)
+            for last_action, last_state in enumerate(self.last_states):
+                commission = self.spread * np.abs(action - last_action)
+                reward = step_return - commission
+                experiences.append((last_state, action, reward, next_state))
+
+        self.last_states = self.next_states
+
+        return experiences
 
 
 
@@ -106,24 +127,11 @@ class DQNAgent(object):
         return augmented_state
 
     def action_augmentation(self, observation):
-        self._add_time_series(observation)
-        time_features = self._get_time_features(observation[0])
-        market_features = self._get_market_features()
 
-        log_return = np.log(self.time_series[-1]/self.time_series[-2])
-        self.next_states = []
-
-        for action in range(self.num_actions):
-            position_features = self.action_array[action]
-            next_state = np.concatenate((time_features, market_features, position_features))
-            self.next_states.append(next_state)
-            step_return = log_return * (action - 1)
-            for last_action, last_state in enumerate(self.last_states):
-                commission = self.spread * np.abs(action - last_action)
-                reward = step_return - commission
-                self._replay.append((last_state, action, reward, next_state))
-
-        self.last_states = self.next_states
+        self.st.build_state(observation)
+        experiences = self.st.get_experiences(observation)
+        for experience in experiences:
+            self._replay.append(experience)
 
     def _initialise_time_series(self, observation):
         """Initialises the time series with the first observation"""
@@ -136,12 +144,6 @@ class DQNAgent(object):
             position_features = self.action_array[action]
             state = np.concatenate((time_features, market_features, position_features))
             self.last_states.append(state)
-
-
-    def build_replay_buffer(self,state):
-        """Updates the replay buffer based on the new observations"""
-        self.replay_buffer = self.replay_buffer.append(state)
-        self.replay_buffer = self.replay_buffer[-replay_history:]
 
     # Returns the agent's first action for the episode
     def begin_episode(self, initial_observation):
