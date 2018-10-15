@@ -85,6 +85,8 @@ class DQNAgent(object):
                  gamma,
                  spread=0.00005,
                  action_size = 3,
+                 learning_rate = 0.00025,
+                 tau = 0.001
                  ):
         self.st = StateTransformer()
         self.action_array = np.identity(3)
@@ -97,6 +99,8 @@ class DQNAgent(object):
         self.model2 = build_model()
         self.action
         self.step = 0
+        self.learning_rate =learning_rate
+        self.tau = tau
 
     def build_state(self, observation, action, reward):
         """
@@ -233,11 +237,13 @@ class DQNAgent(object):
             self.model1.fit(state, target, epochs=1)
 
     def _update_target_weights(self):
-        n = len(model1.layers)
+        n = len(self.model1.layers)
         w1 =[]
         w2 =[]
-        for i in range(n):
-            w1 = [w1,model1.layer[i].get_weights()[0]]
-            w2 = [w2,model2.layer[i].get_weights()[0]]
+        for lay in self.model1.layers
+            w1 = [w1,lay.get_weights()[0]]
+        for lay2 in self.model2.layers:
+            w2 = [w2,lay2.get_weights()[0]]
+        for i in range(len(w2)):
             w2 = (1 - self.tau)*w2 + self.tau * w1
-            model2.layer.set_weights(w2)
+        self.model2.set_weights(w2)
