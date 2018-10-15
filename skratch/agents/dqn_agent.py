@@ -172,7 +172,7 @@ class DQNAgent(object):
 
     def build_replay_buffer(self):
         """Updates the replay buffer based on the new observations"""
-        self.replay_buffer = self.replay_buffer.append(self.st.action_augmentation() )
+        self.replay_buffer = self.replay_buffer + self.st.action_augmentation()
         self.replay_buffer = self.replay_buffer[-replay_history:]
 
     # Returns the agent's first action for the episode
@@ -248,7 +248,7 @@ class DQNAgent(object):
 
 
     def _train_model(self):
-        minibatch = random.sample(self.replay_buffer, self.learning_timestep)
+        minibatch = random.sample(self.replay_buffer, self.learning_timestep) #list of expiriences(which are tuples)
         for state, action, reward, next_state in minibatch :
             Q_next = self.model2.predict(next_state)
             a = argmax(self.model1.predict(next_state))
@@ -264,3 +264,6 @@ class DQNAgent(object):
         for i in range(len(w2)):
             w2 = (1 - self.tau)*w2 + self.tau * w1
         self.model2.set_weights(w2)
+
+#expirience is a tuple of 8 (s,a,r,s') tuples. Replay buffer is list of these
+#We want to
