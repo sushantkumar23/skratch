@@ -69,7 +69,7 @@ class StateTransformer(object):
         new_series = pd.Series([observation[1]], index=[observation[0]])
         self.time_series.append(new_series)
 
-    def get_experiences()
+    def get_experiences():
 
 
 
@@ -109,9 +109,8 @@ class DQNAgent(object):
 
         #How does time feature work in our case is it even important
         state = np.concatenate((time_features, market_features, position_features))
-        state = tf.convert_to_tensor(state, dtype = tf.float32)
 
-        return augmented_state
+        return state
 
     def action_augmentation(self, observation):
         self._add_time_series(observation)
@@ -242,16 +241,3 @@ class DQNAgent(object):
             w2 = [w2,model2.layer[i].get_weights()[0]]
             w2 = (1 - self.tau)*w2 + self.tau * w1
             model2.layer.set_weights(w2)
-
-
-
-
-
-
-
-
-
-
-
-
-
