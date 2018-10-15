@@ -6,3 +6,8 @@
 
 # Data Folders
 fx_data/
+
+# Distribution Folders
+build/
+dist/
+skratch.egg-info/
