@@ -169,7 +169,7 @@ class DQNAgent(object):
                 gamma=0.99,
                 replay_buffer_size=1000,
                 learning_rate=0.00025,
-                tau=0.001
+                tau=0.001,
                 online_update_period=96,
                 target_update_period=96
                 ):
@@ -195,6 +195,7 @@ class DQNAgent(object):
         self.tau = tau
         self.online_update_period = online_update_period
         self.target_update_period = target_update_period
+        self.gamma = gamma
 
         # Initiailze the ReplayBuffer
         self.st = ReplayBuffer(
