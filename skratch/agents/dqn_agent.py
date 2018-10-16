@@ -10,14 +10,41 @@ NORMALIZATION_WINDOW = 96
 STACK_SIZE = 8
 
 
-class StateTransformer(object):
+class ReplayBuffer(object):
 
-    def __init__(self):
+    def __init__(
+                self,
+                replay_buffer_size=1000,
+                num_actions=3,
+                stack_size=8,
+                spread=0.00005):
+        """Initialises a Replay Buffer which creates and stores the observations
+        at each time step and returns the state using the observation time
+        series
 
+        The replay buffer takes care of generating the states from the observation
+        """
 
+        self.replay_buffer_size = replay_buffer_size
+        self.num_actions = num_actions
+        self.last_states = None
+        self.stack_size = stack_size
+        self.spread = spread
 
-    def _get_time_features(self, timestamp):
+        self._buffer = collections.deque(maxlen=self._replay_buffer_size)
 
+    def _get_time_features(self, timestamp=timestamp):
+        """Returns the time features for a time step
+
+        Args:
+            timestamp (pandas.timestamp): uses a pandas timestamp object to extract
+            minute, hour and wekday
+
+        Returns:
+            time_features (np.array, shape=6): an array of cyclical time
+            features generated using sin and cos encoding of the minute, hour
+            and the weekday.
+        """
         min = timestamp.to_pydatetime().minute
         min_sin = np.sin(min*(2.*np.pi/60))
         min_cos = np.cos(min*(2.*np.pi/60))
@@ -38,13 +65,23 @@ class StateTransformer(object):
 
     def _get_market_features(self):
         """Returns the market feature at the current timestep"""
-        log_ret = np.log(self.time_series) - np.log(self.time_series.shift(1))
-        market_features = log_ret[:STACK_SIZE]
-        return market_features.values
+        log_ret = np.log(self.time_series[1]) - np.log(self.time_series[2])
+        market_features = market_features[-self.stack_size:]
+        return market_features
 
+    def _get_position_features(self, action):
+        """Returns the position feature based on the agent's last action"""
+        position_features = np.zeros(3)
+        position_features[action] = 1
+        return position_features
 
-    def iniitalise_state(self, initial_observation):
-        """Initialises the time series with the first observation"""
+    def store_iniital_observation(self, initial_observation):
+        """Initialises the time series with the first observation
+
+        Also, creates the last_states for the first time when get_experiences
+        is called in subsequent steps, they assume that last_states already
+        has some values.
+        """
         self.time_series = pd.Series(observation[1], index=[observation[0]])
         time_features = self._get_time_features(observation[0])
         market_features = self._get_market_features()
@@ -56,11 +93,27 @@ class StateTransformer(object):
             self.last_states.append(state)
 
 
-    def build_state(self, observation):
-        new_series = pd.Series([observation[1]], index=[observation[0]])
-        self.time_series.append(new_series)
+    def _append_time_series(self, observation):
+        """Appends a single timestep to the time series"""
+        new_series = pd.Series(observation[1], index=[observation[0]])
+        self.time_series = pd.Series.concat([self.time_series, new_series])
 
-    def get_experiences(self):
+
+    def store_observation(self, observation):
+        """
+        Stores the observation and creates experiences by performing action
+        augumentation and stores them in the buffer
+
+        Action augumentation: Creating more experiences from actual experiences
+        which reduces the exploration as it uses the reward from the current
+        timestamp and modifies it achieve 3x3 or 9 more experiences from the
+        one single experience. Therefore, expediting the training of the agent.
+        """
+
+        # Append observation to time series
+        self._append_time_series(observation)
+
+        # Get the time features and market features
         time_features = self._get_time_features(observation[0])
         market_features = self._get_market_features()
 
@@ -80,7 +133,17 @@ class StateTransformer(object):
 
         self.last_states = self.next_states
 
-        return experiences
+        # Add all the experiences to the replay buffer
+        for experience in experiences:
+            self._buffer.append(experience)
+
+    def sample(self, batch_size=32):
+        """
+        Returns a batch of the experiences sampled randomly from the buffer
+        """
+        batch = random.sample(self.__buffer, self.learning_timestep)
+        return batch
+
 
 
 
@@ -90,23 +153,51 @@ class DQNAgent(object):
     """
 
     def __init__(self,
-                 replay_buffer_size = 1000,
-                 learning_timestep = 96,
-                 stack_size = 8,
-                 gamma,
-                 spread=0.00005,
-                 action_size = 3,
-                 ):
-        self.st = StateTransformer()
-        self.action_array = np.identity(3)
-        self.action_size = action_size
-        self._replay_buffer_size = replay_buffer_size
-        self._replay = collections.deque(maxlen=self._replay_buffer_size)
-        self.state
-        self.past_state
-        self.model1 = build_model()
-        self.model2 = build_model()
-        self.action
+                num_actions = 3,
+                gamma=0.99,
+                replay_buffer_size=1000,
+                learning_rate=0.00025,
+                tau=0.001
+                online_update_period=96,
+                target_update_period=96
+                ):
+        """
+        Initialises the agent and assigns values for all the hyperparameters
+
+        Args:
+            num_actions (int): number of actions agent can take at any state
+            gamma (float): discount factor with the usual RL meaning.
+            replay_buffer_size (int): Size of the replay buffer for storing the
+                experiences
+            learning_rate (float): learning_rate to be used for the optimizer
+            tau (float): tau value to be used when making soft update to the
+                weights of the target_network
+            online_update_period (int): update period for the online network.
+            target_update_period (int): update period for the target network.
+        """
+
+        # Initialise the variables and hyperparameters
+        self.num_actions = num_actions
+        self.replay_buffer_size = replay_buffer_size
+        self.learning_rate = learning_rate
+        self.tau = tau
+        self.online_update_period = online_update_period
+        self.target_update_period = target_update_period
+
+        # Initiailze the ReplayBuffer
+        self.st = ReplayBuffer(
+            replay_buffer_size=self.replay_buffer_size,
+            num_actions=self.num_actions)
+
+        # Create the replay buffer
+
+        # Build the online_network and target_network
+        self.online_network = self._build_network(name="online")
+        self.target_network = self._build_network(name="target")
+
+        # Initiailze the internal_variables
+        self.action = None
+        self.step = 0
 
     def build_state(self, observation, action, reward):
         """
@@ -148,6 +239,18 @@ class DQNAgent(object):
         self.replay_buffer = self.replay_buffer.append((self.past_state,reward,self.action,self.state))
         self.replay_buffer = self.replay_buffer[-replay_history:]
 
+
+    def _build_network(self, name=None):
+        """Returns a standard model for training the Q-network"""
+        model = Sequential(name=name)
+        model.add(Dense(24, input_dim=self.state_size, activation='elu'))
+        model.add(Dense(24, activation='elu'))
+       # model.add(LSTM(1, input_shape = (24,1)))
+        model.add(Dense(self.num_actions, activation='sigmoid'))
+        model.compile(loss='mse',
+                  optimizer=Adam(lr=self.learning_rate))
+        return model
+
     # Returns the agent's first action for the episode
     def begin_episode(self, initial_observation):
         """
@@ -164,18 +267,26 @@ class DQNAgent(object):
             action is the discrete integer from the action space that the
             agent wants to take as the first action.
         """
-        self.st.iniitalise_state(initial_observation)
+        self._replay.store_iniital_observation(initial_observation)
+        self.action = self._select_action())
+        self._train_step()
+
+        return action
 
     def step(self, reward, observation):
         """
         Records the most recent transition into replay buffer and return's the
         agent's next action
         """
-        self._train_model()
-        self.action = self._select_action(reward, observation)
-        self.past_state = self.state
-        self.state = build_state(observation, reward)
-        build_replay_buffer(reward)
+        self.step += 1
+        self.action = self._select_action()
+
+        # Add the observation to the replay buffer
+        self._replay.store_observation(observation)
+
+        # Perform the training of the networks
+        self._train_step()
+
         return self.action
 
     def end_episode(self, reward, observation):
@@ -200,37 +311,43 @@ class DQNAgent(object):
         -------
         action taken by the agent each step
         """
-        act_value = self.model1.predict(state)
+        act_value = self.online_network.predict(state)
         return np.argmax(act_value)
 
 
-    def _build_model(self):
-        model = Sequential()
-        model.add(Dense(24, input_dim=self.state_size, activation='elu'))
-        model.add(Dense(24, activation='elu'))
-        model.add(LSTM(1, input_shape = (24,1)))
-        model.add(Dense(self.action_size, activation='sigmoid'))
-        model.compile(loss='mse',
-                  optimizer=Adam(lr=self.learning_rate))
-        return model
+    def _train_step(self):
+        """Runs a single training step based on the update periods of both the
+        online network
 
+        And, updates the weights from online to target network if training steps
+        is a multiple of target update period.
+        """
 
+        # Online Network
+        # Train the online network if step is a multiple of online_update_period
+        if (self.step % self.online_update_period) == 0:
+            self._replay.sample(size=self.batch_size)
+            for state, action, reward, next_state in minibatch :
+                Q_next = self.target_network.predict(next_state)
+                a = argmax(self.online_network.predict(next_state))
+                target = reward + self.gamma * Q_next[a]
+                #greedy action wrt online_network not target_network
+                #train network
+                self.online_network.fit(state, target, epochs=1)
 
+        # Target Network
+        # Update the target weights if step is a multiple of target_update_period
+        if (self.step % self.target_update_period) == 0:
+            self._update_target_weights()
 
-    def _train_model(self):
-        minibatch = random.sample(self.replay_buffer, self.learning_timestep)
-        for state, action, reward, next_state in minibatch :
-            Q_next = self.model2.predict(next_state)
-            target = reward + self.gamma * np.amax(Q_next)
-            #train network
-            self.model1.fit(state, target, epochs=1)
-            self.model2.fit(state, target, epochs = 1)
+    def _update_target_weights(self):
+        """
+        Makes a soft update to the weight of the target_network using the
+        weights of the online_network
+        """
 
-# To do - Preprocess data , Write a separate function for training target network
-# and make the training less frequent
-
-
-
-
-
-
+        w1 = self.online_network.get_weights()
+        w2 = self.target_network.get_weights()
+        for i in range(len(w2)):
+            w2 = (1 - self.tau)*w2 + self.tau * w1
+        self.target_network.set_weights(w2)
