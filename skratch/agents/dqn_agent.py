@@ -2,8 +2,13 @@
 # Copyright 2018 Skratch Authors.
 
 import numpy as np
-import Tensorflow as tf
+from tensorflow import keras
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.optimizers import Adam
 import pandas as pd
+import collections
+import random
 
 
 NORMALIZATION_WINDOW = 96
@@ -36,9 +41,10 @@ class ReplayBuffer(object):
         self.stack_size = stack_size
         self.spread = spread
 
-        self._buffer = collections.deque(maxlen=self._replay_buffer_size)
+        self._buffer = collections.deque(maxlen=self.replay_buffer_size)
+        self._add_count = 0
 
-    def _get_time_features(self, timestamp=timestamp):
+    def _get_time_features(self, timestamp):
         """Returns the time features for a time step
 
         Args:
@@ -71,8 +77,8 @@ class ReplayBuffer(object):
 
     def _get_market_features(self):
         """Returns the market feature at the current timestep"""
-        log_ret = np.log(self.time_series[1]) - np.log(self.time_series[2])
-        market_features = market_features[-self.stack_size:]
+        log_ret = np.log(self.time_series) - np.log(self.time_series.shift(1))
+        market_features = log_ret[-self.stack_size:]
         return market_features
 
     def _get_position_features(self, action):
@@ -88,13 +94,23 @@ class ReplayBuffer(object):
         is called in subsequent steps, they assume that last_states already
         has some values.
         """
-        self.time_series = pd.Series(observation[1], index=[observation[0]])
-        time_features = self._get_time_features(observation[0])
+        initial_series_data = np.ones(9) * initial_observation[1]
+        ts = initial_observation[0]
+        initial_series_index = []
+        for i in range(9):
+            temp_ts = ts - pd.Timedelta(days=i)
+            initial_series_index.append(temp_ts)
+
+        self.time_series = pd.Series(
+            initial_series_data, index=initial_series_index
+        )
+        time_features = self._get_time_features(initial_observation[0])
         market_features = self._get_market_features()
 
         self.last_states = []
         for action in range(self.num_actions):
-            position_features = self.action_array[action]
+            position_features = np.zeros(self.num_actions)
+            position_features[action] = 1
             state = np.concatenate((time_features, market_features, position_features))
             self.last_states.append(state)
 
@@ -139,13 +155,14 @@ class ReplayBuffer(object):
 
         # Add all the experiences to the replay buffer
         for experience in experiences:
+            self._add_count = max(self._add_count + 1, 1000)
             self._buffer.append(experience)
 
-    def sample(self, batch_size=32):
+    def sample(self, batch_size=96):
         """
         Returns a batch of the experiences sampled randomly from the buffer
         """
-        batch = random.sample(self.__buffer, self.learning_timestep)
+        batch = random.sample(self._buffer, batch_size)
         return batch
 
     def get_current_state(self, last_action):
@@ -169,8 +186,9 @@ class DQNAgent(object):
                 gamma=0.99,
                 replay_buffer_size=1000,
                 learning_rate=0.00025,
-                tau=0.001
-                online_update_period=96,
+                tau=0.001,
+                batch_size=96,
+                online_update_period=8,
                 target_update_period=96
                 ):
         """
@@ -184,20 +202,26 @@ class DQNAgent(object):
             learning_rate (float): learning_rate to be used for the optimizer
             tau (float): tau value to be used when making soft update to the
                 weights of the target_network
+            batch_size (int): number of experiences to be used in one training
+                step
             online_update_period (int): update period for the online network.
             target_update_period (int): update period for the target network.
         """
 
         # Initialise the variables and hyperparameters
         self.num_actions = num_actions
+        self.gamma = gamma
         self.replay_buffer_size = replay_buffer_size
         self.learning_rate = learning_rate
         self.tau = tau
+        self.batch_size = batch_size
         self.online_update_period = online_update_period
         self.target_update_period = target_update_period
 
+        self.state_shape = 17
+
         # Initiailze the ReplayBuffer
-        self.st = ReplayBuffer(
+        self._replay = ReplayBuffer(
             replay_buffer_size=self.replay_buffer_size,
             num_actions=self.num_actions)
 
@@ -214,7 +238,7 @@ class DQNAgent(object):
     def _build_network(self, name=None):
         """Returns a standard model for training the Q-network"""
         model = Sequential(name=name)
-        model.add(Dense(24, input_dim=self.state_size, activation='elu'))
+        model.add(Dense(24, input_dim=self.state_shape, activation='elu'))
         model.add(Dense(24, activation='elu'))
        # model.add(LSTM(1, input_shape = (24,1)))
         model.add(Dense(self.num_actions, activation='sigmoid'))
@@ -226,7 +250,8 @@ class DQNAgent(object):
     def begin_episode(self, initial_observation):
         """
         Similar to the step function, except that it just receives the
-        obsevation as the parameter and returns the action.
+        obsevation as the parameter and returns a uniformly selected random
+        action.
         Parameters:
         ----------
         observation (tuple):
@@ -239,7 +264,7 @@ class DQNAgent(object):
             agent wants to take as the first action.
         """
         self._replay.store_iniital_observation(initial_observation)
-        self.action = self._select_action())
+        self.action = np.random.randint(self.num_actions)
         self._train_step()
 
         return action
@@ -295,14 +320,15 @@ class DQNAgent(object):
         # Online Network
         # Train the online network if step is a multiple of online_update_period
         if (self.step % self.online_update_period) == 0:
-            self._replay.sample(size=self.batch_size)
-            for state, action, reward, next_state in minibatch :
-                Q_next = self.target_network.predict(next_state)
-                a = argmax(self.online_network.predict(next_state))
-                target = reward + self.gamma * Q_next[a]
-                #greedy action wrt online_network not target_network
-                #train network
-                self.online_network.fit(state, target, epochs=1)
+            if (self._replay._add_count < self.batch_size):
+                self._replay.sample(batch_size=self.batch_size)
+                for state, action, reward, next_state in minibatch :
+                    Q_next = self.target_network.predict(next_state)
+                    a = argmax(self.online_network.predict(next_state))
+                    target = reward + self.gamma * Q_next[a]
+                    #greedy action wrt online_network not target_network
+                    #train network
+                    self.online_network.fit(state, target, epochs=1)
 
         # Target Network
         # Update the target weights if step is a multiple of target_update_period
