@@ -2,18 +2,9 @@
 # Copyright 2018 Skratch Authors.
 
 import numpy as np
-import tensorflow as tf
+import Tensorflow as tf
 import pandas as pd
 
-# dt = pd.Timestamp('2018-01-06')
-# series = pd.Series([1.222], index=[dt])
-# series
-#
-# dt.to_pydatetime().weekday()
-#
-# dt2 = pd.Timestamp('2018-01-02')
-# new_series = pd.Series([1.333], index=[dt2])
-# series.append(new_series)
 
 NORMALIZATION_WINDOW = 96
 STACK_SIZE = 8
@@ -21,12 +12,17 @@ STACK_SIZE = 8
 
 class StateTransformer(object):
 
-    def __init__(self):
+    def __init__(self,observation,action,reward):
+        self.past_observation =  self.observation
+        self.observation = observation
+        self.past_action = self.action
+        self.action = action
+        self.reward = reward
+        self.past_state = self.state
+        self.state = self.build_state()
 
-
-
-    def _get_time_features(self, timestamp):
-
+    def _get_time_features(self):
+        timestamp = self.observation[0]
         min = timestamp.to_pydatetime().minute
         min_sin = np.sin(min*(2.*np.pi/60))
         min_cos = np.cos(min*(2.*np.pi/60))
@@ -47,9 +43,25 @@ class StateTransformer(object):
 
     def _get_market_features(self):
         """Returns the market feature at the current timestep"""
-        log_ret = np.log(self.time_series) - np.log(self.time_series.shift(1))
-        market_features = log_ret[:STACK_SIZE]
-        return market_features.values
+        log_ret = np.log(self.observation[1]) - np.log(self.past_observation[1])
+        market_features = np.append(market_features,log_ret)
+        market_features = market_features[-self.stack_size:]
+        return market_features
+
+    def _get_position_features(self, action = self.action):
+        """Returns the position feature based on the agent's last action"""
+        position_features = np.zeros(3)
+        position_features[action + 1] = 1
+        return position_features
+
+
+    # def build_state(self):
+    #     m = _get_market_features()
+    #     p = _get_position_feature()
+    #     t = _get_time_features()
+    #     state = np.append(m, p, t)
+    #     return state
+
 
 
     def iniitalise_state(self, initial_observation):
@@ -65,12 +77,28 @@ class StateTransformer(object):
             self.last_states.append(state)
 
 
-    def build_state(self, observation):
-        new_series = pd.Series([observation[1]], index=[observation[0]])
-        self.time_series.append(new_series)
 
-    def get_experiences():
+    def get_experiences(self):
+        time_features = self._get_time_features(observation[0])
+        market_features = self._get_market_features()
 
+        log_return = np.log(self.time_series[-1]/self.time_series[-2])
+        self.next_states = []
+        experiences = []
+
+        for action in range(self.num_actions):
+            position_features = self.action_array[action]
+            next_state = np.concatenate((time_features, market_features, position_features))
+            self.next_states.append(next_state)
+            step_return = log_return * (action - 1)
+            for last_action, last_state in enumerate(self.last_states):
+                commission = self.spread * np.abs(action - last_action)
+                reward = step_return - commission
+                experiences.append((last_state, action, reward, next_state))
+
+        self.last_states = self.next_states
+
+        return experiences
 
 
 class DQNAgent(object):
@@ -80,7 +108,7 @@ class DQNAgent(object):
 
     def __init__(self,
                  replay_buffer_size = 1000,
-                 learning_timestep = 96,
+                 training_timestep = 96,
                  stack_size = 8,
                  gamma,
                  spread=0.00005,
@@ -88,7 +116,6 @@ class DQNAgent(object):
                  learning_rate = 0.00025,
                  tau = 0.001
                  ):
-        self.st = StateTransformer()
         self.action_array = np.identity(3)
         self.action_size = action_size
         self._replay_buffer_size = replay_buffer_size
@@ -99,59 +126,14 @@ class DQNAgent(object):
         self.model2 = build_model()
         self.action
         self.step = 0
-        self.learning_rate =learning_rate
+        self.training_timestep = training_timestep
+        self.learning_rate = learning_rate
         self.tau = tau
 
-    def build_state(self, observation, action, reward):
-        """
-        Takes the observations and builds the state spaces out of the observations.
-        Parameters
-        ----------
-         observation (tuple):
-             observation is received from the runner and the environment.
-        """
 
-        #How does time feature work in our case is it even important
-        state = np.concatenate((time_features, market_features, position_features))
-
-        return state
-
-    def action_augmentation(self, observation):
-        self._add_time_series(observation)
-        time_features = self._get_time_features(observation[0])
-        market_features = self._get_market_features()
-
-        log_return = np.log(self.time_series[-1]/self.time_series[-2])
-        self.next_states = []
-
-        for action in range(self.num_actions):
-            position_features = self.action_array[action]
-            next_state = np.concatenate((time_features, market_features, position_features))
-            self.next_states.append(next_state)
-            step_return = log_return * (action - 1)
-            for last_action, last_state in enumerate(self.last_states):
-                commission = self.spread * np.abs(action - last_action)
-                reward = step_return - commission
-                self._replay.append((last_state, action, reward, next_state))
-
-        self.last_states = self.next_states
-
-    def _initialise_time_series(self, observation):
-        """Initialises the time series with the first observation"""
-        self.time_series = pd.Series(observation[1], index=[observation[0]])
-        time_features = self._get_time_features(observation[0])
-        market_features = self._get_market_features()
-
-        self.last_states = []
-        for action in range(self.num_actions):
-            position_features = self.action_array[action]
-            state = np.concatenate((time_features, market_features, position_features))
-            self.last_states.append(state)
-
-
-    def build_replay_buffer(self,reward,action):
+    def build_replay_buffer(self):
         """Updates the replay buffer based on the new observations"""
-        self.replay_buffer = self.replay_buffer.append((self.past_state,reward,self.action,self.state))
+        self.replay_buffer = self.replay_buffer.append(self.st.action_augmentation() )
         self.replay_buffer = self.replay_buffer[-replay_history:]
 
     # Returns the agent's first action for the episode
@@ -178,12 +160,12 @@ class DQNAgent(object):
         agent's next action
         """
         self.step += 1
-        if self.step % training_timestep == 0:
+        if self.step % self.training_timestep == 0:
             self._train_model()
         self._update_target_weights()
         self.action = self._select_action()
         self.past_state = self.state
-        self.state = build_state(observation, reward)
+        self.st = StateTransformer(observation,reward,self.action)
         build_replay_buffer(reward)
         return self.action
 
@@ -214,6 +196,7 @@ class DQNAgent(object):
 
 
     def _build_model(self):
+        """Returns a standard model for training the Q-network"""
         model = Sequential()
         model.add(Dense(24, input_dim=self.state_size, activation='elu'))
         model.add(Dense(24, activation='elu'))
@@ -222,9 +205,6 @@ class DQNAgent(object):
         model.compile(loss='mse',
                   optimizer=Adam(lr=self.learning_rate))
         return model
-
-
-
 
     def _train_model(self):
         minibatch = random.sample(self.replay_buffer, self.learning_timestep)
@@ -238,12 +218,8 @@ class DQNAgent(object):
 
     def _update_target_weights(self):
         n = len(self.model1.layers)
-        w1 =[]
-        w2 =[]
-        for lay in self.model1.layers
-            w1 = [w1,lay.get_weights()[0]]
-        for lay2 in self.model2.layers:
-            w2 = [w2,lay2.get_weights()[0]]
+        w1 = model1.get_weights()
+        w2 = model2.get_weights()
         for i in range(len(w2)):
             w2 = (1 - self.tau)*w2 + self.tau * w1
         self.model2.set_weights(w2)
