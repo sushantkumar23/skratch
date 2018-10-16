@@ -103,7 +103,7 @@ class ReplayBuffer(object):
         new_series = pd.Series(observation[1], index=[observation[0]])
         self.time_series = pd.Series.concat([self.time_series, new_series])
 
-    def store_observation(self, observation):
+    def add_observation(self, observation):
         """
         Stores the observation and creates experiences by performing action
         augumentation and stores them in the buffer
@@ -147,6 +147,16 @@ class ReplayBuffer(object):
         """
         batch = random.sample(self.__buffer, self.learning_timestep)
         return batch
+
+    def get_current_state(self, last_action):
+        """Returns the current state of the agent
+
+        Args:
+            last_action (int): Takes the last action of the agent and uses that
+            to find the current state of the agent from the array of last_states
+            which contains the state of all possible actions.
+        """
+        return self.last_states[last_action]
 
 
 class DQNAgent(object):
@@ -240,14 +250,14 @@ class DQNAgent(object):
         agent's next action
         """
         self.step += 1
-        self.action = self._select_action()
 
         # Add the observation to the replay buffer
-        self._replay.store_observation(observation)
+        self.record_observation(observation)
 
         # Perform the training of the networks
         self._train_step()
 
+        self.action = self._select_action()
         return self.action
 
     def end_episode(self, reward, observation):
@@ -269,11 +279,10 @@ class DQNAgent(object):
         """
         Selects a greedy action based on estimation of Q function.
         Returns:
-        -------
-        action taken by the agent each step
+            action (int): action taken by the agent for the current state
         """
-        act_value = self.online_network.predict(state)
-        return np.argmax(act_value)
+        action_values = self.online_network.predict(self.current_state)
+        return np.argmax(action_values)
 
     def _train_step(self):
         """Runs a single training step based on the update periods of both the
@@ -311,3 +320,12 @@ class DQNAgent(object):
         for i in range(len(w2)):
             w2 = (1 - self.tau)*w2 + self.tau * w1
         self.target_network.set_weights(w2)
+
+
+    def _record_observation(self, observation):
+        """
+        Adds the obsevation to the replay buffer and gets the current state
+        from the replay_buffer
+        """
+        self._replay.add_observation(observation)
+        self.current_state = self._replay.get_current_state(last_action=self.action)
