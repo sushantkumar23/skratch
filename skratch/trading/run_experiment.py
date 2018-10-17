@@ -2,20 +2,16 @@
 
 """Module defining classes and helper methods for a trading agent."""
 
-from skratch.common import iteration_statistics
-import matplotlib.pyplot as plt
-
-import gym
 import numpy as np
-import tensorflow as tf
+import matplotlib.pyplot as plt
 
 
 class Runner(object):
     """Object that handles running Atari 2600 experiments.
 
-    Here we use the term 'experiment' to mean simulating interactions between the
-    agent and the environment and reporting some statistics pertaining to these
-    interactions.
+    Here we use the term 'experiment' to mean simulating interactions between
+    the agent and the environment and reporting some statistics pertaining to
+    these interactions.
 
     A simple scenario to train a DQN agent is as follows:
 
@@ -49,9 +45,8 @@ class Runner(object):
         - Initialize an agent.
         """
 
-        self._environment = environment
         self._agent = agent
-
+        self._environment = environment
 
     def run_experiment(self):
         """Runs a full experiment and at conclusion plots the important
@@ -123,7 +118,6 @@ class Runner(object):
         plt.plot(np.cumsum(self.rewards))
         plt.plot(np.cumsum(self.benchmark_rewards))
         plt.legend(['Agent', 'Benchmark'])
-
 
     def _print_statistics(self):
         """Prints out the relevant experiment statistics"""

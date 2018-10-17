@@ -118,7 +118,7 @@ class ReplayBuffer(object):
     def _append_time_series(self, observation):
         """Appends a single timestep to the time series"""
         new_series = pd.Series(observation[1], index=[observation[0]])
-        self.time_series = pd.Series.concat([self.time_series, new_series])
+        self.time_series = pd.concat([self.time_series, new_series])
 
     def add_observation(self, observation):
         """
@@ -143,7 +143,8 @@ class ReplayBuffer(object):
         experiences = []
 
         for action in range(self.num_actions):
-            position_features = self.action_array[action]
+            position_features = np.zeros(self.num_actions)
+            position_features[action] = 1
             next_state = np.concatenate(
                 (time_features, market_features, position_features)
             )
@@ -229,15 +230,13 @@ class DQNAgent(object):
             replay_buffer_size=self.replay_buffer_size,
             num_actions=self.num_actions)
 
-        # Create the replay buffer
-
         # Build the online_network and target_network
         self.online_network = self._build_network(name="online")
         self.target_network = self._build_network(name="target")
 
         # Initiailze the internal_variables
         self.action = None
-        self.step = 0
+        self.total_steps = 0
 
     def _build_network(self, name=None):
         """Returns a standard model for training the Q-network"""
@@ -279,10 +278,10 @@ class DQNAgent(object):
         Records the most recent transition into replay buffer and return's the
         agent's next action
         """
-        self.step += 1
+        self.total_steps += 1
 
         # Add the observation to the replay buffer
-        self.record_observation(observation)
+        self._record_observation(observation)
 
         # Perform the training of the networks
         self._train_step()
@@ -324,7 +323,7 @@ class DQNAgent(object):
 
         # Online Network
         # Train online network if step is a multiple of online_update_period
-        if (self.step % self.online_update_period) == 0:
+        if (self.total_steps % self.online_update_period) == 0:
             if (self._replay._add_count > self.batch_size):
                 minibatch = self._replay.sample(batch_size=self.batch_size)
                 for (state, action, reward, next_state) in minibatch:
@@ -337,7 +336,7 @@ class DQNAgent(object):
 
         # Target Network
         # Update target weights if step is a multiple of target_update_period
-        if (self.step % self.target_update_period) == 0:
+        if (self.total_steps % self.target_update_period) == 0:
             self._update_target_weights()
 
     def _update_target_weights(self):
