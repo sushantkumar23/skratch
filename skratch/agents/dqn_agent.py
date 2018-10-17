@@ -338,9 +338,8 @@ class DQNAgent(object):
                     Q_target[a] = target
                     train_batch = np.array([state])
                     target_batch = np.array([Q_target])
-                    self.online_network.fit(
-                        train_batch, target_batch, epochs=1
-                    )
+                self.online_network.fit(train_batch, target_batch, epochs=1)
+
 
         # Target Network
         # Update target weights if step is a multiple of target_update_period
