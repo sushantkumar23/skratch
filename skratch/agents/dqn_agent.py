@@ -327,6 +327,9 @@ class DQNAgent(object):
         if (self.total_steps % self.online_update_period) == 0:
             if (self._replay._add_count > self.batch_size):
                 minibatch = self._replay.sample(batch_size=self.batch_size)
+
+                train_batch = []
+                target_batch = []
                 for (state, action, reward, next_state) in minibatch:
                     predict_batch = np.array([next_state])
                     # greedy action wrt online_network not target_network
@@ -336,10 +339,13 @@ class DQNAgent(object):
                     a = np.argmax(Q_online)
                     target = reward + self.gamma * Q_target[a]
                     Q_target[a] = target
-                    train_batch = np.array([state])
-                    target_batch = np.array([Q_target])
-                self.online_network.fit(train_batch, target_batch, epochs=1)
+                    train_batch.append(state)
+                    target_batch.append(Q_target)
 
+                # Train the online network on the minibatch
+                X_train = np.array(train_batch)
+                y_train = np.array(target_batch)
+                self.online_network.fit(X_train, y_train, epochs=1)
 
         # Target Network
         # Update target weights if step is a multiple of target_update_period
