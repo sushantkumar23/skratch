@@ -348,10 +348,8 @@ class DQNAgent(object):
 
         w1 = self.online_network.get_weights()
         w2 = self.target_network.get_weights()
-        print(w1)
-        print(w2)
         for i in range(len(w2)):
-            w2 = (1 - self.tau) * w2 + self.tau * w1
+            w2[i] = (1 - self.tau) * w2[i] + self.tau * w1[i]
         self.target_network.set_weights(w2)
 
     def _record_observation(self, observation):
