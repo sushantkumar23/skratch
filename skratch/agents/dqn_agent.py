@@ -158,7 +158,7 @@ class ReplayBuffer(object):
 
         # Add all the experiences to the replay buffer
         for experience in experiences:
-            self._add_count = max(self._add_count + 1, 1000)
+            self._add_count = min(self._add_count + 1, 1000)
             self._buffer.append(experience)
 
     def sample(self, batch_size=96):
@@ -323,9 +323,9 @@ class DQNAgent(object):
         """
 
         # Online Network
-        # Train the online network if step is a multiple of online_update_period
+        # Train online network if step is a multiple of online_update_period
         if (self.step % self.online_update_period) == 0:
-            if (self._replay._add_count < self.batch_size):
+            if (self._replay._add_count > self.batch_size):
                 minibatch = self._replay.sample(batch_size=self.batch_size)
                 for (state, action, reward, next_state) in minibatch:
                     Q_next = self.target_network.predict(next_state)
@@ -348,8 +348,10 @@ class DQNAgent(object):
 
         w1 = self.online_network.get_weights()
         w2 = self.target_network.get_weights()
+        print(w1)
+        print(w2)
         for i in range(len(w2)):
-            w2 = (1 - self.tau)*w2 + self.tau * w1
+            w2 = (1 - self.tau) * w2 + self.tau * w1
         self.target_network.set_weights(w2)
 
     def _record_observation(self, observation):
