@@ -331,12 +331,13 @@ class DQNAgent(object):
                     predict_batch = np.array([next_state])
                     # greedy action wrt online_network not target_network
                     # train network
-                    Q_target = self.target_network.predict(predict_batch)
-                    Q_online = self.online_network.predict(predict_batch)
-                    a = np.argmax(Q_online[0])
+                    Q_target = self.target_network.predict(predict_batch)[0]
+                    Q_online = self.online_network.predict(predict_batch)[0]
+                    a = np.argmax(Q_online)
                     target = reward + self.gamma * Q_target[a]
+                    Q_target[a] = target
                     train_batch = np.array([state])
-                    target_batch = np.array([target])
+                    target_batch = np.array([Q_target])
                     self.online_network.fit(
                         train_batch, target_batch, epochs=1
                     )
