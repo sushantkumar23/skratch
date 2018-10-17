@@ -310,8 +310,9 @@ class DQNAgent(object):
         Returns:
             action (int): action taken by the agent for the current state
         """
-        action_values = self.online_network.predict(self.current_state)
-        return np.argmax(action_values)
+        predict_batch = np.array([self.current_state])
+        action_values = self.online_network.predict(predict_batch)
+        return np.argmax(action_values[0])
 
     def _train_step(self):
         """Runs a single training step based on the update periods of both the
@@ -327,12 +328,18 @@ class DQNAgent(object):
             if (self._replay._add_count > self.batch_size):
                 minibatch = self._replay.sample(batch_size=self.batch_size)
                 for (state, action, reward, next_state) in minibatch:
-                    Q_next = self.target_network.predict(next_state)
-                    a = np.argmax(self.online_network.predict(next_state))
-                    target = reward + self.gamma * Q_next[a]
+                    predict_batch = np.array([next_state])
                     # greedy action wrt online_network not target_network
                     # train network
-                    self.online_network.fit(state, target, epochs=1)
+                    Q_target = self.target_network.predict(predict_batch)
+                    Q_online = self.online_network.predict(predict_batch)
+                    a = np.argmax(Q_online[0])
+                    target = reward + self.gamma * Q_target[a]
+                    train_batch = np.array([state])
+                    target_batch = np.array([target])
+                    self.online_network.fit(
+                        train_batch, target_batch, epochs=1
+                    )
 
         # Target Network
         # Update target weights if step is a multiple of target_update_period
