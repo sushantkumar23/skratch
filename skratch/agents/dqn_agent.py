@@ -8,10 +8,14 @@ from keras.optimizers import Adam
 import pandas as pd
 import collections
 import random
+import logging
 
 
 NORMALIZATION_WINDOW = 96
 STACK_SIZE = 8
+
+# Setting logging config to INFO
+logging.basicConfig(level=logging.INFO)
 
 
 class ReplayBuffer(object):
@@ -26,7 +30,7 @@ class ReplayBuffer(object):
                 replay_buffer_size=1000,
                 num_actions=3,
                 stack_size=8,
-                spread=0.00005):
+                spread=0.00002):
         """
         Initialises a Replay Buffer .with the following parameters
 
@@ -188,12 +192,12 @@ class DQNAgent(object):
     def __init__(
                 self,
                 num_actions=3,
-                gamma=0.99,
+                gamma=0.95,
                 replay_buffer_size=1000,
-                learning_rate=0.00025,
-                tau=0.001,
-                batch_size=96,
-                online_update_period=8,
+                learning_rate=0.0025,
+                tau=0.01,
+                batch_size=128,
+                online_update_period=32,
                 target_update_period=96):
         """
         Initialises the agent and assigns values for all the hyperparameters
@@ -212,6 +216,19 @@ class DQNAgent(object):
             target_update_period (int): update period for the target network.
         """
 
+        # Log all parameters to the console
+        logging.info('Creating {} agent with the following parameters:'.format(
+            self.__class__.__name__)
+        )
+        logging.info("num_actions: {}".format(num_actions))
+        logging.info("gamma: {}".format(gamma))
+        logging.info("replay_buffer_size: {}".format(replay_buffer_size))
+        logging.info("learning_rate: {}".format(learning_rate))
+        logging.info("tau: {}".format(tau))
+        logging.info("batch_size: {}".format(batch_size))
+        logging.info("online_update_period: {}".format(online_update_period))
+        logging.info("target_update_period: {}".format(target_update_period))
+
         # Initialise the variables and hyperparameters
         self.num_actions = num_actions
         self.gamma = gamma
@@ -221,7 +238,6 @@ class DQNAgent(object):
         self.batch_size = batch_size
         self.online_update_period = online_update_period
         self.target_update_period = target_update_period
-        self.gamma = gamma
 
         self.state_shape = 17
 
