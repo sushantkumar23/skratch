@@ -79,9 +79,18 @@ class ReplayBuffer(object):
         return time_features
 
     def _get_market_features(self):
-        """Returns the market feature at the current timestep"""
-        log_ret = np.log(self.time_series) - np.log(self.time_series.shift(1))
-        market_features = log_ret[-self.stack_size:]
+        """Returns the market feature at the current timestep, which are the
+        log returns of the past stack_size number of close price and volumes.
+        The final features are flattened array
+
+        Returns:
+            market_features (np.array): A flattened numpy array of log returns
+                of the close_price and volume with the length equal to the
+                stack_size.
+        """
+        log_ret = np.log(self.time_series/self.time_series.shift(1))
+        market_features = log_ret[-self.stack_size:].values
+        market_features = market_features.flatten()
         return market_features
 
     def _get_position_features(self, action):
@@ -97,32 +106,56 @@ class ReplayBuffer(object):
         is called in subsequent steps, they assume that last_states already
         has some values.
         """
-        initial_series_data = np.ones(9) * initial_observation[1]
-        ts = initial_observation[0]
-        initial_series_index = []
-        for i in range(9):
-            temp_ts = ts - pd.Timedelta(days=i)
-            initial_series_index.append(temp_ts)
 
-        self.time_series = pd.Series(
-            initial_series_data, index=initial_series_index
+        initial_size = self.stack_size
+        temp_ts = initial_observation[0]
+        initial_index = []
+
+        # Index Initialisation
+        for i in range(initial_size):
+            temp_ts = temp_ts - pd.Timedelta(minutes=15)
+            initial_index.append(temp_ts)
+
+        # Values Initialisation
+        dtype = [('close', np.float64), ('volume', np.int64)]
+        initial_values = np.array(
+            [(initial_observation[1], initial_observation[2])] * initial_size,
+            dtype=dtype
         )
-        time_features = self._get_time_features(initial_observation[0])
+
+        # Dataframe initialisation using Values + Index
+        self.time_series = pd.DataFrame(initial_values, index=initial_index)
+        self.time_series.sort_index(inplace=True)
+
+        # Construct the first set of states
+        self.last_states = self._construct_states(initial_observation)
+
+    def _append_time_series(self, observation):
+        """Appends a single timestep to the time series"""
+        dtype = [('close', np.float64), ('volume', np.int64)]
+        values = np.array(
+            [(observation[1], observation[2])],
+            dtype=dtype)
+        new_df = pd.DataFrame(values, index=[observation[0]])
+        self.time_series = pd.concat([self.time_series, new_df])
+
+    def _construct_states(self, observation):
+        """Adds the current observation to the time series and construct the
+        current set of states from the series"""
+        self._append_time_series(observation)
+        time_features = self._get_time_features(observation[0])
         market_features = self._get_market_features()
 
-        self.last_states = []
+        states = []
         for action in range(self.num_actions):
             position_features = np.zeros(self.num_actions)
             position_features[action] = 1
             state = np.concatenate(
                 (time_features, market_features, position_features)
             )
-            self.last_states.append(state)
+            states.append(state)
 
-    def _append_time_series(self, observation):
-        """Appends a single timestep to the time series"""
-        new_series = pd.Series(observation[1], index=[observation[0]])
-        self.time_series = pd.concat([self.time_series, new_series])
+        return states
 
     def add_observation(self, observation):
         """
@@ -136,29 +169,16 @@ class ReplayBuffer(object):
         """
 
         # Append observation to time series
-        self._append_time_series(observation)
-
-        # Get the time features and market features
-        time_features = self._get_time_features(observation[0])
-        market_features = self._get_market_features()
-
-        log_return = np.log(self.time_series[-1]/self.time_series[-2])
-        self.next_states = []
+        self.next_states = self._construct_states(observation)
+        log_return = np.log(
+            self.time_series['close'][-1]/self.time_series['close'][-2])
         experiences = []
-
-        for action in range(self.num_actions):
-            position_features = np.zeros(self.num_actions)
-            position_features[action] = 1
-            next_state = np.concatenate(
-                (time_features, market_features, position_features)
-            )
-            self.next_states.append(next_state)
+        for action, next_state in enumerate(self.next_states):
             step_return = log_return * (action - 1)
             for last_action, last_state in enumerate(self.last_states):
                 commission = self.spread * np.abs(action - last_action)
                 reward = step_return - commission
                 experiences.append((last_state, action, reward, next_state))
-
         self.last_states = self.next_states
 
         # Add all the experiences to the replay buffer
@@ -178,8 +198,8 @@ class ReplayBuffer(object):
 
         Args:
             last_action (int): Takes the last action of the agent and uses that
-            to find the current state of the agent from the array of
-            last_states which contains the state of all possible actions.
+                to find the current state of the agent from the array of
+                last_states which contains the state of all possible actions.
         """
         return self.last_states[last_action]
 
@@ -190,20 +210,24 @@ class DQNAgent(object):
     """
 
     def __init__(
-                self,
-                num_actions=3,
-                gamma=0.95,
-                replay_buffer_size=1000,
-                learning_rate=0.0025,
-                tau=0.01,
-                batch_size=128,
-                online_update_period=32,
-                target_update_period=96):
+        self,
+        num_actions=3,
+        stack_size=8,
+        gamma=0.95,
+        replay_buffer_size=2000,
+        learning_rate=0.0025,
+        tau=0.01,
+        batch_size=128,
+        online_update_period=32,
+        target_update_period=96
+    ):
         """
         Initialises the agent and assigns values for all the hyperparameters
 
-        Args:
+        Parameters:
             num_actions (int): number of actions agent can take at any state
+            stack_size (int): number of past observations to use for creating
+                the state
             gamma (float): discount factor with the usual RL meaning.
             replay_buffer_size (int): Size of the replay buffer for storing the
                 experiences
@@ -221,6 +245,7 @@ class DQNAgent(object):
             self.__class__.__name__)
         )
         logging.info("num_actions: {}".format(num_actions))
+        logging.info("stack_size: {}".format(stack_size))
         logging.info("gamma: {}".format(gamma))
         logging.info("replay_buffer_size: {}".format(replay_buffer_size))
         logging.info("learning_rate: {}".format(learning_rate))
@@ -231,6 +256,7 @@ class DQNAgent(object):
 
         # Initialise the variables and hyperparameters
         self.num_actions = num_actions
+        self.stack_size = stack_size
         self.gamma = gamma
         self.replay_buffer_size = replay_buffer_size
         self.learning_rate = learning_rate
@@ -239,12 +265,15 @@ class DQNAgent(object):
         self.online_update_period = online_update_period
         self.target_update_period = target_update_period
 
-        self.state_shape = 17
+        # Shape of time_features + Shape of market_features + Shape of
+        # position features
+        self.state_shape = (6 + (self.stack_size * 2) + 3)
 
         # Initiailze the ReplayBuffer
         self._replay = ReplayBuffer(
             replay_buffer_size=self.replay_buffer_size,
-            num_actions=self.num_actions)
+            num_actions=self.num_actions,
+            stack_size=self.stack_size)
 
         # Build the online_network and target_network
         self.online_network = self._build_network(name="online")
@@ -266,7 +295,6 @@ class DQNAgent(object):
                     optimizer=Adam(lr=self.learning_rate))
         return model
 
-    # Returns the agent's first action for the episode
     def begin_episode(self, initial_observation):
         """
         Similar to the step function, except that it just receives the
@@ -293,6 +321,13 @@ class DQNAgent(object):
         """
         Records the most recent transition into replay buffer and return's the
         agent's next action
+        Args:
+            reward (float): the reward the agent recieved for it's last action
+            observation (tuple): observation is a tuple of (timestamp, close,
+                volume) that the agent uses to take the next action.
+        Returns:
+            action (int): the action that the agent wants to take at the
+                current timestep.
         """
         self.total_steps += 1
 
@@ -309,14 +344,11 @@ class DQNAgent(object):
         """
         Records an end of episode. This method notes the reward and terminal
         observation and does not return an action unlike the step function.
-        Parameters:
-        ----------
-        reward (float):
-            The terminal reward that the agent receives at the end of an
-            episode.
-        observation:
-            The terminal observation that is emitted by the environment at the
-            end of an epiode.
+        Args:
+            reward (float): The terminal reward that the agent receives at the
+                end of an episode.
+            observation (tuple): The terminal observation that is emitted by
+                the environment at the end of an episode.
         """
         pass
 
