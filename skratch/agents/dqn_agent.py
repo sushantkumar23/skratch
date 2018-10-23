@@ -30,7 +30,7 @@ class ReplayBuffer(object):
                 replay_buffer_size=1000,
                 num_actions=3,
                 stack_size=8,
-                spread=0.00002):
+                spread=0.000008):
         """
         Initialises a Replay Buffer .with the following parameters
 
@@ -213,9 +213,9 @@ class DQNAgent(object):
         self,
         num_actions=3,
         stack_size=8,
-        gamma=0.95,
+        gamma=0.99,
         replay_buffer_size=2000,
-        learning_rate=0.0025,
+        learning_rate=0.025,
         tau=0.01,
         batch_size=128,
         online_update_period=32,
@@ -289,7 +289,7 @@ class DQNAgent(object):
         model.add(Dense(24, input_dim=self.state_shape, activation='elu'))
         model.add(Dense(24, activation='elu'))
         # model.add(LSTM(1, input_shape = (24,1)))
-        model.add(Dense(self.num_actions, activation='sigmoid'))
+        model.add(Dense(self.num_actions, activation='linear'))
         model.compile(
                     loss='mse',
                     optimizer=Adam(lr=self.learning_rate))
@@ -313,7 +313,7 @@ class DQNAgent(object):
         """
         self._replay.store_iniital_observation(initial_observation)
         self.action = np.random.randint(self.num_actions)
-        self._train_step()
+        # self._train_step()
 
         return self.action
 
@@ -359,7 +359,7 @@ class DQNAgent(object):
             action (int): action taken by the agent for the current state
         """
         predict_batch = np.array([self.current_state])
-        action_values = self.online_network.predict(predict_batch)
+        action_values = self.target_network.predict(predict_batch)
         return np.argmax(action_values[0])
 
     def _train_step(self):
