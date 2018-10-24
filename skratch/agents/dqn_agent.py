@@ -287,7 +287,7 @@ class DQNAgent(object):
         """Returns a standard model for training the Q-network"""
         model = Sequential(name=name)
         model.add(Dense(24, input_dim=self.state_shape, activation='elu'))
-        model.add(Dense(24, activation='elu'))
+        model.add(Dense(128, activation='elu'))
         # model.add(LSTM(1, input_shape = (24,1)))
         model.add(Dense(self.num_actions, activation='linear'))
         model.compile(
@@ -359,7 +359,7 @@ class DQNAgent(object):
             action (int): action taken by the agent for the current state
         """
         predict_batch = np.array([self.current_state])
-        action_values = self.target_network.predict(predict_batch)
+        action_values = self.online_network.predict(predict_batch)
         return np.argmax(action_values[0])
 
     def _train_step(self):
@@ -379,16 +379,26 @@ class DQNAgent(object):
                 train_batch = []
                 target_batch = []
                 for (state, action, reward, next_state) in minibatch:
-                    predict_batch = np.array([next_state])
-                    # greedy action wrt online_network not target_network
-                    # train network
-                    Q_target = self.target_network.predict(predict_batch)[0]
-                    Q_online = self.online_network.predict(predict_batch)[0]
-                    a = np.argmax(Q_online)
-                    target = reward + self.gamma * Q_target[a]
-                    Q_target[a] = target
+                    current_state_batch = np.array([state])
+                    next_state_batch = np.array([next_state])
+
+                    # Get the Q-values
+                    Q_online_current = self.online_network.predict(
+                        current_state_batch)[0]
+                    Q_target_next = self.target_network.predict(
+                        next_state_batch)[0]
+                    Q_online_next = self.online_network.predict(
+                        next_state_batch)[0]
+
+                    # Double DQN uses online network for argmax and target
+                    # network for value of that argmax
+                    next_action = np.argmax(Q_online_next)
+                    target = reward + self.gamma * Q_target_next[next_action]
+
+                    # Make the Bellman update on target (Y) value
+                    Q_online_current[action] = target
                     train_batch.append(state)
-                    target_batch.append(Q_target)
+                    target_batch.append(Q_online_current)
 
                 # Train the online network on the minibatch
                 X_train = np.array(train_batch)
