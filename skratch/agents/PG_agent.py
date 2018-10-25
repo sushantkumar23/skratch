@@ -235,13 +235,23 @@ class PG_agent(object):
    def build_feature(self):
 
 
+   def reshape_input(self):
+
+
 
    def path_score(self,path):#path is a list of (state,actions) tuples
 
 
 
    def log_prob(self,state,action):
-       P = K.log(model(state)[action])
+       """
+       Gives the log probability of the agent taking an action from a
+       specified state
+       """
+
+       #P = K.log(model(state)[action])
+       P = K.log(self.model(state))
+       P = K.slice(P,[action],[1])
        return P
 
 
@@ -253,43 +263,63 @@ class PG_agent(object):
        Compute - path_score*log_prob{path}
        """
        Path_loss = K.constant(0)
-       for state,action in path:
+       for step in path:
+           state = step[0]
+           action = step[1]
            Path_loss += log_prob(state,action)
        Path_loss *= path_score(path)
+       Path_loss = -1 * Path_loss
        return Path_loss
 
 
 
 
-
-
-
-   def build_path(self):
+   def build_path(self,start_state):
        """
        Builds a path of length l by sampling actions from the models current
        action predictions for l steps and records the state,action sequence.
        Returns the path loss.
        """
+       state = start_state
+       action = self.select_action(state)
+       path = [(state,action)]
+       length = 1
+       while length < self.l :
+         for experience in self.replay_buffer:
+             if state,action in experience:
+                 state = experience[3]
+                 action = self.select_action(state)
+                 length += 1
+                 path = path.append((state,action))
+        path_loss = self.path_loss(path)
+        return path_loss
 
 
 
-
-   def sample_paths(self):
+   def loss_computation(self):
        """
-       Builds n paths from a uniformly sampled starting point.
+       Builds n starting points.Compute path loss for each
        """
-
-
-
-   def loss(y_true, y_pred):
        l = K.constant(0)
-       sample = self.sample_paths()#returns a list of self.n paths of length self.l
-       for path in sample:
-           l += path_loss(path) #path_loss returns a tensor
+       sample = random.sample(range(self.replay_buffer_size - self.l),self.n)
+       for i in sample :
+           experience = self.replay_buffer[i]
+           start_state = experience[0]
+           l += self.build_path(start_state)
        l = l/self.n
        return l
 
 
+
+
+
+  def loss_Keras(self):
+    def loss(y_true, y_pred):
+     l = self.loss_computation()
+     return l
+    return loss()
+
+#to train loss = loss_Keras() and then model.compile(loss = loss)
 
 
     def build_network(self, name=None):
@@ -298,14 +328,19 @@ class PG_agent(object):
         x = Dense(64, activation='relu')(inputs)
         x = Dense(64, activation='relu')(x)
         predictions = Dense(3, activation='softmax')(x)
-        model = Model(inputs=inputs, outputs=predictions)
-        model.compile(optimizer='Adam',
+        self.model = Model(inputs=inputs, outputs=predictions)
+        self.model.compile(optimizer='Adam',
               loss=self.loss)
 
 
 
 
-    def select_action(self):
+    def select_action(self,state):
+        action_prob_values = K.eval(self.model(state))
+        action = np.random.choice(a = np.arange(3),p = action_prob_values)
+        return(action)
+
+
 
 
 
