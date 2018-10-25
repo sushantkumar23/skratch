@@ -3,6 +3,7 @@
 """Module defining classes and helper methods for a trading agent."""
 
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 
@@ -81,6 +82,7 @@ class Runner(object):
         Returns:
             action: int the initial action chosen by the agent.
         """
+        self.index = []
         self.rewards = []
         self.benchmark_rewards = []
         self.num_steps = 0
@@ -100,6 +102,7 @@ class Runner(object):
         """
         observation, reward, done, info = self._environment.step(action)
         self.num_steps += 1
+        self.index.append(observation[0])
         self.rewards.append(reward)
         self.benchmark_rewards.append(info['return'])
         return observation, reward, done
@@ -114,10 +117,14 @@ class Runner(object):
 
     def _plot_equity_curve(self):
         """Plots the Equity Curve of Agent vs Benchmark"""
-        plt.title("Performance: Agent vs Benchmark")
-        plt.plot(np.cumsum(self.rewards))
-        plt.plot(np.cumsum(self.benchmark_rewards))
-        plt.legend(['Agent', 'Benchmark'])
+
+        df = pd.DataFrame(
+            {
+                'Agent': np.cumsum(self.rewards),
+                'Benchmark': np.cumsum(self.benchmark_rewards)
+            },
+            index=self.index)
+        df.plot(title="Performance: Agent vs Benchmark")
 
     def _print_statistics(self):
         """Prints out the relevant experiment statistics"""
