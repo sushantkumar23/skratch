@@ -5,14 +5,12 @@ import numpy as np
 from keras.models import Sequential
 from keras.layers import Dense
 from keras.optimizers import Adam
+from keras.initializers import RandomNormal
 import pandas as pd
+from scipy import stats
 import collections
 import random
 import logging
-
-
-NORMALIZATION_WINDOW = 96
-STACK_SIZE = 8
 
 # Setting logging config to INFO
 logging.basicConfig(level=logging.INFO)
@@ -20,17 +18,19 @@ logging.basicConfig(level=logging.INFO)
 
 class ReplayBuffer(object):
     """
-    Replay Buffer which creates and stores the observations
-    at each time step and returns the state using the observation time
-    series
+    Replay Buffer which creates and stores the observations at each time step
+    and returns the state using the observation time series
     """
 
     def __init__(
-                self,
-                replay_buffer_size=1000,
-                num_actions=3,
-                stack_size=8,
-                spread=0.000008):
+        self,
+        replay_buffer_size=1000,
+        num_actions=3,
+        stack_size=8,
+        spread=0.000008,
+        normalisation_window=96,
+        interval=15
+    ):
         """
         Initialises a Replay Buffer .with the following parameters
 
@@ -43,6 +43,9 @@ class ReplayBuffer(object):
         self.last_states = None
         self.stack_size = stack_size
         self.spread = spread
+        self.normalisation_window = normalisation_window
+        self.dtype = [('close', np.float64), ('volume', np.int64)]
+        self.interval = 15
 
         self._buffer = collections.deque(maxlen=self.replay_buffer_size)
         self._add_count = 0
@@ -89,9 +92,15 @@ class ReplayBuffer(object):
                 stack_size.
         """
         log_ret = np.log(self.time_series/self.time_series.shift(1))
-        market_features = log_ret[-self.stack_size:].values
-        market_features = market_features.flatten()
-        return market_features
+        log_ret = log_ret.dropna()
+
+        # Applying the z-score normalization
+        normalised_features = stats.zscore(
+            log_ret.values[-self.normalisation_window:])
+        market_features = normalised_features[-self.stack_size:].flatten()
+
+        # Convert all nans to numbers
+        return np.nan_to_num(market_features)
 
     def _get_position_features(self, action):
         """Returns the position feature based on the agent's last action"""
@@ -107,21 +116,25 @@ class ReplayBuffer(object):
         has some values.
         """
 
-        initial_size = self.stack_size
-        temp_ts = initial_observation[0]
+        # Index and Values Initialisation
         initial_index = []
+        initial_values = np.empty(self.stack_size, dtype=self.dtype)
 
-        # Index Initialisation
-        for i in range(initial_size):
-            temp_ts = temp_ts - pd.Timedelta(minutes=15)
+        # Initialisation: With noise to break symmetry
+        for i in range(self.stack_size):
+            time_lag = (i+1) * 15
+            temp_ts = initial_observation[0] - pd.Timedelta(minutes=time_lag)
             initial_index.append(temp_ts)
 
-        # Values Initialisation
-        dtype = [('close', np.float64), ('volume', np.int64)]
-        initial_values = np.array(
-            [(initial_observation[1], initial_observation[2])] * initial_size,
-            dtype=dtype
-        )
+            # Taking absolute value: since price and volume cannot be negative
+            temp_value = np.array(
+                [(
+                    initial_observation[1] * np.abs(1+0.001*np.random.randn()),
+                    initial_observation[2] * np.abs(1+0.1*np.random.randn())
+                )],
+                dtype=self.dtype
+            )
+            initial_values[i] = temp_value
 
         # Dataframe initialisation using Values + Index
         self.time_series = pd.DataFrame(initial_values, index=initial_index)
@@ -132,10 +145,9 @@ class ReplayBuffer(object):
 
     def _append_time_series(self, observation):
         """Appends a single timestep to the time series"""
-        dtype = [('close', np.float64), ('volume', np.int64)]
         values = np.array(
             [(observation[1], observation[2])],
-            dtype=dtype)
+            dtype=self.dtype)
         new_df = pd.DataFrame(values, index=[observation[0]])
         self.time_series = pd.concat([self.time_series, new_df])
 
@@ -183,7 +195,6 @@ class ReplayBuffer(object):
 
         # Add all the experiences to the replay buffer
         for experience in experiences:
-            self._add_count = min(self._add_count + 1, 1000)
             self._buffer.append(experience)
 
     def sample(self, batch_size=96):
@@ -212,22 +223,21 @@ class DQNAgent(object):
     def __init__(
         self,
         num_actions=3,
-        stack_size=8,
+        state_shape=25,
         gamma=0.99,
-        replay_buffer_size=2000,
-        learning_rate=0.025,
-        tau=0.01,
-        batch_size=128,
-        online_update_period=32,
-        target_update_period=96
+        replay_buffer_size=4500,
+        learning_rate=0.0025,
+        tau=0.001,
+        batch_size=32,
+        online_update_period=6,
+        target_update_period=1
     ):
         """
         Initialises the agent and assigns values for all the hyperparameters
 
         Parameters:
             num_actions (int): number of actions agent can take at any state
-            stack_size (int): number of past observations to use for creating
-                the state
+            state_shape (int): shape of the state
             gamma (float): discount factor with the usual RL meaning.
             replay_buffer_size (int): Size of the replay buffer for storing the
                 experiences
@@ -245,7 +255,7 @@ class DQNAgent(object):
             self.__class__.__name__)
         )
         logging.info("num_actions: {}".format(num_actions))
-        logging.info("stack_size: {}".format(stack_size))
+        logging.info("state_shape: {}".format(state_shape))
         logging.info("gamma: {}".format(gamma))
         logging.info("replay_buffer_size: {}".format(replay_buffer_size))
         logging.info("learning_rate: {}".format(learning_rate))
@@ -256,7 +266,7 @@ class DQNAgent(object):
 
         # Initialise the variables and hyperparameters
         self.num_actions = num_actions
-        self.stack_size = stack_size
+        self.state_shape = state_shape
         self.gamma = gamma
         self.replay_buffer_size = replay_buffer_size
         self.learning_rate = learning_rate
@@ -265,15 +275,11 @@ class DQNAgent(object):
         self.online_update_period = online_update_period
         self.target_update_period = target_update_period
 
-        # Shape of time_features + Shape of market_features + Shape of
-        # position features
-        self.state_shape = (6 + (self.stack_size * 2) + 3)
-
         # Initiailze the ReplayBuffer
         self._replay = ReplayBuffer(
             replay_buffer_size=self.replay_buffer_size,
             num_actions=self.num_actions,
-            stack_size=self.stack_size)
+            stack_size=8)
 
         # Build the online_network and target_network
         self.online_network = self._build_network(name="online")
@@ -283,13 +289,19 @@ class DQNAgent(object):
         self.action = None
         self.total_steps = 0
 
+        self.training_losses = []
+
     def _build_network(self, name=None):
         """Returns a standard model for training the Q-network"""
         model = Sequential(name=name)
         model.add(Dense(24, input_dim=self.state_shape, activation='elu'))
         model.add(Dense(128, activation='elu'))
         # model.add(LSTM(1, input_shape = (24,1)))
-        model.add(Dense(self.num_actions, activation='linear'))
+        model.add(Dense(
+            self.num_actions,
+            kernel_initializer=RandomNormal(mean=0.0, stddev=0.001),
+            bias_initializer=RandomNormal(mean=0.0, stddev=0.001),
+            activation='linear'))
         model.compile(
                     loss='mse',
                     optimizer=Adam(lr=self.learning_rate))
@@ -373,7 +385,7 @@ class DQNAgent(object):
         # Online Network
         # Train online network if step is a multiple of online_update_period
         if (self.total_steps % self.online_update_period) == 0:
-            if (self._replay._add_count > self.batch_size):
+            if (len(self._replay._buffer) > self.batch_size):
                 minibatch = self._replay.sample(batch_size=self.batch_size)
 
                 train_batch = []
@@ -403,7 +415,8 @@ class DQNAgent(object):
                 # Train the online network on the minibatch
                 X_train = np.array(train_batch)
                 y_train = np.array(target_batch)
-                self.online_network.fit(X_train, y_train, epochs=1)
+                history = self.online_network.fit(X_train, y_train, epochs=1)
+                self.training_losses.extend(history.history['loss'])
 
         # Target Network
         # Update target weights if step is a multiple of target_update_period
