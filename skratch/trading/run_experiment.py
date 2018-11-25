@@ -4,7 +4,7 @@
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import tensorflow as tf
 
 
 class Runner(object):
@@ -26,7 +26,7 @@ class Runner(object):
     """
 
     def __init__(self,
-                 agent,
+                 create_agent_fn,
                  environment):
         """
         Initialize the Runner object in charge of running a full experiment.
@@ -46,8 +46,13 @@ class Runner(object):
         - Initialize an agent.
         """
 
-        self._agent = agent
         self._environment = environment
+
+        self.sess = tf.Session(
+            '',
+            config=tf.ConfigProto(allow_soft_placement=True))
+        self._agent = create_agent_fn(sess=self.sess)
+        self.sess.run(tf.global_variables_initializer())
 
     def run_experiment(self):
         """Runs a full experiment and at conclusion plots the important
