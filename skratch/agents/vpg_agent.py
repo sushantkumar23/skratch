@@ -211,18 +211,21 @@ class VPGAgent(object):
         state = self.get_state(initial_observation, self.action)
         return self._select_action(state)
 
-    def get_state(self, observation, action):
-        self.time_series.append(observation[0])
-        self.series.append(observation[1])
-        self.vol_series.append(observation[2])
-        return self.construct_state(len(self.series), action)
-
     def step(self, reward, observation):
         self.total_steps += 1
         self.train_step()
         state = self.get_state(observation, self.action)
         self.action = self._select_action(state)
         return self.action
+
+    def end_episode(self, reward, observation):
+        state = self.get_state(observation, self.action)
+
+    def get_state(self, observation, action):
+        self.time_series.append(observation[0])
+        self.series.append(observation[1])
+        self.vol_series.append(observation[2])
+        return self.construct_state(len(self.series), action)
 
     def train_step(self):
         if self.total_steps % self.training_period == 0:
