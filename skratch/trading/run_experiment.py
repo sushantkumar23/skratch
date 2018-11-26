@@ -52,9 +52,10 @@ class Runner(object):
         self._base_dir = base_dir
 
         if self._base_dir is None:
+            current_datetime = datetime.datetime.now()
             self._base_dir = "./summaries/{}-{}".format(
                 self.__name__,
-                datetime.datetime.strftime("%Y-%m-%dT%H:%M:%S"))
+                current_datetime.strftime("%Y-%m-%dT%H:%M:%S"))
 
         self._environment = environment
 
