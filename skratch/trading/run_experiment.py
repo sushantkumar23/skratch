@@ -52,7 +52,7 @@ class Runner(object):
         self._base_dir = base_dir
 
         if self._base_dir is None:
-            self._base_dir = "{}-{}".format(
+            self._base_dir = "./summaries/{}-{}".format(
                 self.__name__,
                 datetime.datetime.strftime("%Y-%m-%dT%H:%M:%S"))
 
