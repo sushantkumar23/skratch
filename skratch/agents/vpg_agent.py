@@ -20,8 +20,11 @@ class VPGAgent(object):
         steps_per_episode=72,
         path_length=6,
         spread=0.000008,
-        base_dir="./tf_vpg"
+        summary_writer=None
     ):
+
+        self.__name__ = 'VPG'
+        self.__version__ = "0.1.0"
 
         self.stack_size = stack_size
         self.num_actions = num_actions
@@ -32,9 +35,8 @@ class VPGAgent(object):
         self.steps_per_episode = steps_per_episode
         self.path_length = path_length
         self.spread = spread
-        self._base_dir = base_dir
 
-        self._summary_writer = tf.summary.FileWriter(self._base_dir)
+        self._summary_writer = summary_writer
         self.sess = sess
         self._build_model()
         self._summary_writer.add_graph(graph=tf.get_default_graph())
@@ -147,13 +149,16 @@ class VPGAgent(object):
                 self.weights_ph: stats.zscore(np.array(batch_weights))
             })
 
-        return_summary = tf.Summary()
-        return_summary.value.add(
-            tag="return_summary",
-            simple_value=np.mean(ep_rews))
+        if self._summary_writer is not None:
+            return_summary = tf.Summary()
+            return_summary.value.add(
+                tag="return_summary",
+                simple_value=np.mean(ep_rews))
 
-        self._summary_writer.add_summary(return_summary, self.training_epochs)
-        self._summary_writer.add_summary(loss_summary, self.training_epochs)
+            self._summary_writer.add_summary(return_summary,
+                                             self.training_epochs)
+            self._summary_writer.add_summary(loss_summary,
+                                             self.training_epochs)
 
         print('epoch: \t loss: %.3f \t return: %.3f \t ep_len: %.3f'
               % (batch_loss, np.mean(batch_rets), np.mean(batch_lens)))

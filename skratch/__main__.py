@@ -7,11 +7,7 @@ import gym_trading
 
 if __name__ == "__main__":
 
-    def create_agent_fn(sess):
-        agent = VPGAgent(sess)
-        return agent
-
     env = gym.make("fxtrading-v0")
 
-    runner = Runner(create_agent_fn, env)
+    runner = Runner(VPGAgent, env)
     runner.run_experiment()

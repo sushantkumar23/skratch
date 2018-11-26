@@ -5,6 +5,7 @@
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import datetime
 
 
 class Runner(object):
@@ -26,8 +27,9 @@ class Runner(object):
     """
 
     def __init__(self,
-                 create_agent_fn,
-                 environment):
+                 agent_fn,
+                 environment,
+                 base_dir=None):
         """
         Initialize the Runner object in charge of running a full experiment.
 
@@ -46,12 +48,24 @@ class Runner(object):
         - Initialize an agent.
         """
 
+        self.__name__ = "trading-exp0"
+        self._base_dir = base_dir
+
+        if self._base_dir is None:
+            self._base_dir = "{}-{}".format(
+                self.__name__,
+                datetime.datetime.strftime("%Y-%m-%dT%H:%M:%S"))
+
         self._environment = environment
 
+        self._summary_writer = tf.summary.FileWriter(self._base_dir)
         self.sess = tf.Session(
             '',
             config=tf.ConfigProto(allow_soft_placement=True))
-        self._agent = create_agent_fn(sess=self.sess)
+        self._summary_writer.add_graph(graph=tf.get_default_graph())
+        self._agent = agent_fn(
+            sess=self.sess,
+            summary_writer=self._summary_writer)
         self.sess.run(tf.global_variables_initializer())
 
     def run_experiment(self):
@@ -110,6 +124,19 @@ class Runner(object):
         self.index.append(observation[0])
         self.rewards.append(reward)
         self.benchmark_rewards.append(info['return'])
+
+        agent_rewards = tf.Summary()
+        agent_rewards.value.add(
+            tag="agent_rewards",
+            simple_value=np.sum(self.rewards))
+
+        benchmark_rewards = tf.Summary()
+        benchmark_rewards.value.add(
+            tag="benchmark_rewards",
+            simple_value=np.sum(self.benchmark_rewards))
+
+        self._summary_writer.add_summary(agent_rewards, self.num_steps)
+        self._summary_writer.add_summary(benchmark_rewards, self.num_steps)
         return observation, reward, done
 
     def _end_episode(self, reward, observation):
