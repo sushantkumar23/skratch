@@ -29,7 +29,8 @@ class Runner(object):
     def __init__(self,
                  agent_fn,
                  environment,
-                 base_dir=None):
+                 base_dir=None,
+                 log_dir=None):
         """
         Initialize the Runner object in charge of running a full experiment.
 
@@ -49,17 +50,16 @@ class Runner(object):
         """
 
         self._base_dir = base_dir
-        self._log_dir
+        self._log_dir = log_dir
 
         current_datetime = datetime.datetime.now()
         self.run_id = current_datetime.strftime("%Y%m%dT%H%M%S")
 
-
         if self._base_dir is None:
+            self._base_dir = "./summaries/{}-{}".format(self.run_id)
 
-            self._base_dir = "./summaries/{}-{}".format(
-                self.__name__,
-                self.run_id)
+        if self._log_dir is None:
+            self._log_dir = "./logs"
 
         self._environment = environment
 
@@ -165,7 +165,7 @@ class Runner(object):
                 'Benchmark': np.cumsum(self.benchmark_rewards)
             },
             index=self.index)
-        df.to_csv(self._log_dir + '/equity_curve-{}'.format(self.run_id))
+        df.to_csv(self._log_dir + '/equity_curve-{}.csv'.format(self.run_id))
 
     def _print_statistics(self):
         """Prints out the relevant experiment statistics"""

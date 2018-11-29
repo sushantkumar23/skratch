@@ -157,7 +157,7 @@ class VPGAgent(object):
 
         # take a single policy gradient update step
         batch_loss, loss_summary, _ = self.sess.run(
-            [self.loss, self.loss_summary, self.pi_train_op],
+            [self.pi_loss, self.loss_summary, self.pi_train_op],
             feed_dict={
                 self.states_ph: np.array(batch_states),
                 self.actions_ph: np.array(batch_acts),
