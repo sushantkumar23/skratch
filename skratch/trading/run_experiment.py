@@ -48,14 +48,18 @@ class Runner(object):
         - Initialize an agent.
         """
 
-        self.__name__ = "trading-exp0"
         self._base_dir = base_dir
+        self._log_dir
+
+        current_datetime = datetime.datetime.now()
+        self.run_id = current_datetime.strftime("%Y%m%dT%H%M%S")
+
 
         if self._base_dir is None:
-            current_datetime = datetime.datetime.now()
+
             self._base_dir = "./summaries/{}-{}".format(
                 self.__name__,
-                current_datetime.strftime("%Y-%m-%dT%H:%M:%S"))
+                self.run_id)
 
         self._environment = environment
 
@@ -138,6 +142,10 @@ class Runner(object):
 
         self._summary_writer.add_summary(agent_rewards, self.num_steps)
         self._summary_writer.add_summary(benchmark_rewards, self.num_steps)
+
+        if (self.num_steps % 1000) == 0:
+            self._save_equity_curve()
+
         return observation, reward, done
 
     def _end_episode(self, reward, observation):
@@ -148,7 +156,7 @@ class Runner(object):
         """
         self._agent.end_episode(reward, observation)
 
-    def _plot_equity_curve(self):
+    def _save_equity_curve(self):
         """Plots the Equity Curve of Agent vs Benchmark"""
 
         df = pd.DataFrame(
@@ -157,7 +165,7 @@ class Runner(object):
                 'Benchmark': np.cumsum(self.benchmark_rewards)
             },
             index=self.index)
-        df.plot(title="Performance: Agent vs Benchmark")
+        df.to_csv(self._log_dir + '/equity_curve-{}'.format(self.run_id))
 
     def _print_statistics(self):
         """Prints out the relevant experiment statistics"""

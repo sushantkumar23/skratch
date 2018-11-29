@@ -12,13 +12,15 @@ class VPGAgent(object):
         self,
         sess,
         num_actions=3,
-        learning_rate=0.00025,
         stack_size=8,
+        gamma=0.99,
         normalisation_window=96,
         training_period=96,
         episodes_per_epoch=8,
         steps_per_episode=72,
-        path_length=6,
+        pi_learning_rate=0.001,
+        v_learning_rate=0.0003,
+        train_v_iters=5,
         spread=0.000008,
         summary_writer=None
     ):
@@ -26,21 +28,19 @@ class VPGAgent(object):
         self.__name__ = 'VPG'
         self.__version__ = "0.1.0"
 
-        self.stack_size = stack_size
+        self.sess = sess
         self.num_actions = num_actions
+        self.stack_size = stack_size
+        self.gamma = gamma
         self.normalisation_window = normalisation_window
         self.training_period = training_period
-        self.learning_rate = learning_rate
         self.episodes_per_epoch = episodes_per_epoch
         self.steps_per_episode = steps_per_episode
-        self.path_length = path_length
+        self.pi_learning_rate = pi_learning_rate
+        self.v_learning_rate = v_learning_rate
+        self.train_v_iters = train_v_iters
         self.spread = spread
-
         self._summary_writer = summary_writer
-        self.sess = sess
-        self._build_model()
-        self._summary_writer.add_graph(graph=tf.get_default_graph())
-        self.sess.run(tf.global_variables_initializer())
 
         self.epoch_returns = []
         self.total_steps = 0
@@ -50,19 +50,24 @@ class VPGAgent(object):
 
         self.training_epochs = 0
 
-    def _build_model(self):
-
-        # make core of policy network
+        # Initialise the placeholders
         self.states_ph = tf.placeholder(
             shape=(None, self.stack_size*2 + 6 + 3),
             dtype=tf.float32)
-        hidden1 = tf.layers.dense(
-            self.states_ph, units=32,
-            activation=tf.nn.relu)
-        logits = tf.layers.dense(
-            hidden1,
-            units=self.num_actions,
-            activation=None)
+
+        self._build_policy_network()
+        self._build_v_network()
+        self._summary_writer.add_graph(graph=tf.get_default_graph())
+
+        self.sess.run(tf.global_variables_initializer())
+
+    def _build_policy_network(self):
+
+        # make core of policy network
+        hidden1 = tf.layers.dense(self.states_ph, units=32,
+                                  activation=tf.nn.relu)
+        logits = tf.layers.dense(hidden1, units=self.num_actions,
+                                 activation=None)
 
         # make action selection op (outputs int actions, sampled from policy)
         self.action_probs = tf.nn.softmax(logits)
@@ -75,14 +80,20 @@ class VPGAgent(object):
         action_masks = tf.one_hot(self.actions_ph, self.num_actions)
         log_probs = tf.reduce_sum(action_masks * tf.nn.log_softmax(logits),
                                   axis=1)
-        self.loss = -tf.reduce_mean(self.weights_ph * log_probs)
-
+        self.pi_loss = -tf.reduce_mean(self.weights_ph * log_probs)
         self.loss_summary = tf.summary.scalar(name='loss_summary',
-                                              tensor=self.loss)
+                                              tensor=self.pi_loss)
+        self.pi_train_op = tf.train.AdamOptimizer(
+            learning_rate=self.pi_learning_rate).minimize(self.pi_loss)
 
-        # make train op
-        self.train_op = tf.train.AdamOptimizer(
-            learning_rate=self.learning_rate).minimize(self.loss)
+    def _build_v_network(self):
+        v_hidden = tf.layers.dense(self.states_ph, units=32,
+                                   activation=tf.nn.relu)
+        self.v_vals = tf.layers.dense(v_hidden, units=1, activation=None)
+        self.ret_ph = tf.placeholder(shape=(None,), dtype=tf.float32)
+        self.v_loss = tf.reduce_mean((self.ret_ph - self.v_vals)**2)
+        self.v_train_op = tf.train.AdamOptimizer(
+            learning_rate=self.v_learning_rate).minimize(self.v_loss)
 
     def train_one_epoch(self):
 
@@ -91,6 +102,8 @@ class VPGAgent(object):
         batch_states = []          # for observations
         batch_acts = []         # for actions
         batch_weights = []      # for R(tau) weighting in policy gradient
+        batch_q_vals = []
+
         batch_rets = []         # for measuring episode returns
         batch_lens = []         # for measuring episode lengths
 
@@ -100,7 +113,6 @@ class VPGAgent(object):
             end = (len(self.series) - self.steps_per_episode) - 1
             index = np.random.randint(start, end)
             ep_rews = []            # list for rewards accrued throughout ep
-            path_rews = []
             action = 1
 
             # collect experience by acting in environment with current policy
@@ -120,34 +132,45 @@ class VPGAgent(object):
                 step_return = np.log(self.series[index-1]/self.series[index-2])
                 commission = self.spread * np.abs(past_action - action)
                 reward = ((action - 1) * step_return) - commission
+                normalised_reward = reward*1000
 
+                next_state = self.construct_state(index, action)
+                v_vals = self.sess.run(
+                    self.v_vals,
+                    {self.states_ph: np.array([state, next_state])})
+                q_val = normalised_reward + (self.gamma * v_vals[1][0])
+
+                advantage = q_val - v_vals[0][0]
+
+                batch_q_vals.append(q_val)
+                batch_weights.append(advantage)
+
+                state = next_state
                 # save action, reward
                 batch_acts.append(action)
                 ep_rews.append(reward)
-                path_rews.append(reward)
-
-                if len(ep_rews) > self.path_length:
-                    batch_weights += list(self._reward_to_go(path_rews))
-                    path_rews = []
-
-            batch_weights += list(self._reward_to_go(path_rews))
 
             # if episode is over, record info about episode
             ep_ret, ep_len = sum(ep_rews), len(ep_rews)
             batch_rets.append(ep_ret)
             batch_lens.append(ep_len)
 
-            # the weight for each logprob(a_t|s_t) is reward-to-go from t
-            # batch_weights += list(self._reward_to_go(ep_rews))
-
         # take a single policy gradient update step
         batch_loss, loss_summary, _ = self.sess.run(
-            [self.loss, self.loss_summary, self.train_op],
+            [self.loss, self.loss_summary, self.pi_train_op],
             feed_dict={
                 self.states_ph: np.array(batch_states),
                 self.actions_ph: np.array(batch_acts),
                 self.weights_ph: stats.zscore(np.array(batch_weights))
             })
+
+        for i in range(self.train_v_iters):
+            v_loss, _ = self.sess.run(
+                [self.v_loss, self.v_train_op],
+                feed_dict={
+                    self.states_ph: np.array(batch_states),
+                    self.ret_ph: np.array(batch_q_vals)
+                })
 
         if self._summary_writer is not None:
             return_summary = tf.Summary()

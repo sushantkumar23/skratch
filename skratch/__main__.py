@@ -8,7 +8,7 @@ from gym_trading.envs import TradeEnv
 
 if __name__ == "__main__":
 
-    symbols = ['AUDUSD']
+    symbols = ['AUDUSD', 'EURUSD']
     start_date = '2012-01-01'
     end_date = '2017-12-31'
 
