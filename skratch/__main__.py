@@ -14,7 +14,6 @@ if __name__ == "__main__":
 
     for symbol in symbols:
         env = TradeEnv(symbol=symbol, start_date=start_date, end_date=end_date)
-        env.get_data(symbol)
 
         current_datetime = datetime.datetime.now()
         base_dir = "./summaries/{}-{}".format(
