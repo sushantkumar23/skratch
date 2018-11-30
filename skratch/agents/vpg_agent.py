@@ -59,8 +59,6 @@ class VPGAgent(object):
         self._build_v_network()
         self._summary_writer.add_graph(graph=tf.get_default_graph())
 
-        self.sess.run(tf.global_variables_initializer())
-
     def _build_policy_network(self):
 
         # make core of policy network
